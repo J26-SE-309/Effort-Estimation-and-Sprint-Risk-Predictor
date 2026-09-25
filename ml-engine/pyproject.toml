@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "erp"
+version = "0.1.0"
+description = "Effort Estimation and Sprint Risk Predictor: data pipeline, labels, features and models"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "pyarrow>=16",
+  "pymysql>=1.1",
+  "cryptography>=42", # MySQL 8 caching_sha2_password authentication
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+erp-export-tawos = "erp.extract.tawos_to_parquet:main"
+erp-profile-tawos = "erp.explore.profile_tawos:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/erp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No .pytest_cache inside the repository.
+addopts = "-p no:cacheprovider"

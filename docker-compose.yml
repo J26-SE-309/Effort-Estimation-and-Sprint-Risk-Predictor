@@ -1,0 +1,33 @@
+# Local services for the Effort Estimation and Sprint Risk Predictor.
+#
+# Data never lives in this repository. The TAWOS dump is read from
+# ${ERP_DATA_DIR}/TAWOS (default: the Datasets folder next to the repos).
+# MySQL is only used to restore the dump once; the pipeline then works from Parquet.
+name: effort-risk
+
+services:
+  tawos-mysql:
+    image: mysql:8.4
+    container_name: tawos-mysql
+    environment:
+      # Local-only database holding a public research dataset; bound to 127.0.0.1 below.
+      MYSQL_ROOT_PASSWORD: ${TAWOS_MYSQL_PASSWORD:-tawos-local}
+      MYSQL_DATABASE: tawos
+    command:
+      # Tuned for a one-off bulk import, not for durability.
+      - --innodb-buffer-pool-size=2G
+      - --innodb-redo-log-capacity=2G
+      - --innodb-flush-log-at-trx-commit=0
+      - --innodb-doublewrite=OFF
+      - --skip-log-bin
+      - --max-allowed-packet=1G
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - tawos-mysql-data:/var/lib/mysql
+      - ${ERP_DATA_DIR:-../Datasets}/TAWOS:/import:ro
+
+volumes:
+  tawos-mysql-data:
