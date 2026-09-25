@@ -14,7 +14,15 @@ Scope, methodology, datasets and models will be documented here as the research 
 
 ```
 Effort-Estimation-and-Sprint-Risk-Predictor/
-├── docker-compose.yml   # local MySQL, used once to restore the TAWOS dump
+├── backend/             # FastAPI prediction service the platform calls (port 8004)
+│   ├── app/
+│   │   ├── main.py      # app setup and /health
+│   │   ├── config.py    # settings from environment variables or backend/.env
+│   │   ├── db.py        # this component's own PostgreSQL database
+│   │   ├── schemas.py   # request and response models (proposal Appendix C)
+│   │   └── api/v1/      # /estimate, /risk, /recommend, /models, /compare
+│   ├── tests/
+│   └── Dockerfile
 ├── ml-engine/           # Python package `erp`: data pipeline, labels, features, models
 │   ├── src/erp/
 │   │   ├── extract/     # TAWOS MySQL -> Parquet
@@ -22,12 +30,61 @@ Effort-Estimation-and-Sprint-Risk-Predictor/
 │   │   └── tawos.py     # loading the exported tables, decoding TAWOS fields
 │   ├── reports/         # generated reports (e.g. tawos-profile.md)
 │   └── tests/
-└── backend/             # FastAPI prediction service consumed by Synapse-Web (planned)
+└── docker-compose.yml   # effort-db + effort-api, and tawos-mysql for the one-off TAWOS import
 ```
 
-## Data
+## Getting Started
 
-Data is never stored in this repository. Everything lives in a `Datasets` folder **next to** the repositories (override with the `ERP_DATA_DIR` environment variable):
+Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the repository root after cloning.
+
+1. Create a virtual environment and install the backend and ML engine with their test tools:
+
+   ```powershell
+   py -3.12 -m venv .venv
+   .venv\Scripts\python -m pip install -e "backend[dev]" -e "ml-engine[dev]"
+   ```
+
+2. Start this component's database, then run the API with auto-reload:
+
+   ```powershell
+   docker compose up -d effort-db
+   cd backend
+   ..\.venv\Scripts\uvicorn app.main:app --reload --port 8004
+   ```
+
+   Open http://localhost:8004/docs for the interactive API documentation.
+
+3. Run the tests and the linter:
+
+   ```powershell
+   cd backend; ..\.venv\Scripts\python -m pytest; ..\.venv\Scripts\ruff check .
+   cd ..\ml-engine; ..\.venv\Scripts\python -m pytest
+   ```
+
+To run the service and its database together in Docker instead: `docker compose up --build`.
+
+### Database
+
+This component has its own PostgreSQL database and account. No other component connects to it.
+
+| Setting | Local value |
+|---|---|
+| Host and port | `localhost:5444` |
+| Database | `effort_db` |
+| User / password | `effort_user` / `effort-local` |
+
+### API contract
+
+Until the models are trained, `/estimate` returns placeholder predictions marked `model_version: "stub"` and
+`/risk`, `/recommend` and `/compare` answer `501 Not Implemented`, so the gateway and dashboard can already be
+built against the real shapes. The shared JSON Schemas live in
+[`Synapse-Web/contracts/effort-estimation`](https://github.com/J26-SE-309/Synapse-Web/tree/main/contracts/effort-estimation);
+keep them in sync with `backend/app/schemas.py`.
+
+## ML pipeline: TAWOS data
+
+Data is never stored in this repository. It lives in a `Datasets` folder **next to** the repositories
+(override with the `ERP_DATA_DIR` environment variable):
 
 ```
 AgilePlatform/
@@ -35,48 +92,30 @@ AgilePlatform/
 │   ├── TAWOS/TAWOS.sql          # TAWOS v1.1 MySQL dump, doi.org/10.5522/04/21308124 (4.1 GB)
 │   └── effort-risk/
 │       └── tawos-raw/           # every TAWOS table as Parquet, plus _manifest.json
-└── Effort-Estimation-Sprint-Risk-Predictor/   # this repository
+└── Effort-Estimation-and-Sprint-Risk-Predictor/   # this repository
 ```
 
-## Getting Started (Windows, PowerShell)
-
-Requires Python 3.12 and Docker Desktop. Run these from the repository root.
-
-1. Create a virtual environment **outside** the repository and install the ML engine:
-
-   ```powershell
-   py -3.12 -m venv ..\.venvs\effort-risk
-   ..\.venvs\effort-risk\Scripts\python -m pip install -e "ml-engine[dev]"
-   ```
-
-   The repository has no `.gitignore` yet, so also keep Python's `__pycache__` folders out of it (they would otherwise be picked up by `git add .`):
-
-   ```powershell
-   $venv = (Resolve-Path ..\.venvs\effort-risk).Path
-   Set-Content "$venv\Lib\site-packages\erp_pycache_prefix.pth" "import sys; sys.pycache_prefix = r'$venv\pycache'"
-   ```
-
-2. Restore TAWOS into MySQL (one time, about 5 minutes):
+1. Restore TAWOS into MySQL (one time, about 5 minutes):
 
    ```powershell
    docker compose up -d tawos-mysql
    docker exec tawos-mysql sh -c "mysql -uroot -ptawos-local tawos < /import/TAWOS.sql"
    ```
 
-3. Export every table to Parquet (about 3 minutes). After this, MySQL can be stopped with `docker compose stop`:
+2. Export every table to Parquet (about 3 minutes), then stop MySQL with `docker compose stop tawos-mysql`:
 
    ```powershell
-   ..\.venvs\effort-risk\Scripts\erp-export-tawos
+   .venv\Scripts\erp-export-tawos
    ```
 
-4. Profile the data and run the tests:
+3. Profile the data:
 
    ```powershell
-   ..\.venvs\effort-risk\Scripts\erp-profile-tawos
-   cd ml-engine; ..\..\.venvs\effort-risk\Scripts\python -m pytest
+   .venv\Scripts\erp-profile-tawos
    ```
 
-The TAWOS findings that shape the labelling and feature pipeline are in [`ml-engine/reports/tawos-profile.md`](ml-engine/reports/tawos-profile.md).
+The TAWOS findings that shape the labelling and feature pipeline are in
+[`ml-engine/reports/tawos-profile.md`](ml-engine/reports/tawos-profile.md).
 
 ## Synapse Platform Services
 

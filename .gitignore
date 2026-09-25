@@ -1,0 +1,53 @@
+# Only generated and heavy files are ignored: source code, configuration and docs are always committed.
+# Keep datasets and trained models in AgilePlatform/Datasets, next to the repositories.
+
+# Secrets: commit .env.example, never .env
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+npm-debug.log*
+
+# Data, model weights and experiment outputs
+ml-engine/data/
+ml-engine/artifacts/
+mlruns/
+*.parquet
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.onnx
+*.gguf
+*.ckpt
+*.h5
+*.joblib
+*.pkl
+
+# Editors and operating systems
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.DS_Store
+Thumbs.db

@@ -1,14 +1,45 @@
-# Local services for the Effort Estimation and Sprint Risk Predictor.
+# Effort Estimation and Sprint Risk Predictor: the API service, its own database, and the
+# MySQL instance used once to restore the TAWOS dump for the ML pipeline.
 #
-# Data never lives in this repository. The TAWOS dump is read from
-# ${ERP_DATA_DIR}/TAWOS (default: the Datasets folder next to the repos).
-# MySQL is only used to restore the dump once; the pipeline then works from Parquet.
-name: effort-risk
+#   docker compose up --build               effort-db + effort-api
+#   docker compose up -d tawos-mysql        only when (re)importing TAWOS (profile "ml")
+#
+# Also started as part of the whole platform from AgilePlatform/docker-compose.yml.
+# Data never lives in this repository: the TAWOS dump is read from ${ERP_DATA_DIR}/TAWOS
+# (default: the Datasets folder next to the repositories).
+name: effort-estimation
 
 services:
+  effort-db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: effort_db
+      POSTGRES_USER: effort_user
+      POSTGRES_PASSWORD: ${EFFORT_DB_PASSWORD:-effort-local}
+    ports:
+      - "127.0.0.1:5444:5432"
+    volumes:
+      - effort-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U effort_user -d effort_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  effort-api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://effort_user:${EFFORT_DB_PASSWORD:-effort-local}@effort-db:5432/effort_db
+    ports:
+      - "127.0.0.1:8004:8004"
+    depends_on:
+      effort-db:
+        condition: service_healthy
+
   tawos-mysql:
     image: mysql:8.4
     container_name: tawos-mysql
+    profiles: ["ml"]
     environment:
       # Local-only database holding a public research dataset; bound to 127.0.0.1 below.
       MYSQL_ROOT_PASSWORD: ${TAWOS_MYSQL_PASSWORD:-tawos-local}
@@ -30,4 +61,8 @@ services:
       - ${ERP_DATA_DIR:-../Datasets}/TAWOS:/import:ro
 
 volumes:
+  # Fixed names keep the data whether this file runs alone or from AgilePlatform/docker-compose.yml.
+  effort-db-data:
+    name: effort-db-data
   tawos-mysql-data:
+    name: effort-risk_tawos-mysql-data
