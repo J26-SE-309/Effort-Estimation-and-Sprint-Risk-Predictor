@@ -60,7 +60,8 @@ class Predictor:
         self.directory = directory
         self.manifest = json.loads((directory / MANIFEST).read_text(encoding="utf-8"))
         self.encoder_name = self.manifest["encoder"]["name"]
-        self.encoder = data.load_encoder(self.encoder_name)
+        # The encoders sit beside the configurations, wherever the arena's folder was copied to.
+        self.encoder = data.load_encoder(self.encoder_name, directory.parent / "encoders")
         self.levels = self.manifest["levels"]
         effort, risk = self.manifest["effort"], self.manifest["risk"]
         if "joint" in self.manifest:

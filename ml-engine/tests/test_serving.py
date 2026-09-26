@@ -1,6 +1,7 @@
 """The prediction engine behind the service: live features, R1 router, R2 recommendations, A1 simulation."""
 
 import json
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ import pytest
 
 from erp.features import catalog
 from erp.serving import live, recommend, sprint
+from erp.serving import router as router_module
 from erp.serving.router import MARGIN, Router
 
 
@@ -60,6 +62,45 @@ def test_router_rules(leaderboard):
     assert (pinned.config, pinned.mode) == ("other", "pinned")
     with pytest.raises(KeyError):
         leaderboard.choose("CLEAR", 10, pinned="missing")
+
+
+def test_router_offers_only_configurations_whose_packages_are_installed(tmp_path, monkeypatch):
+    configs = {"fasttext-lightgbm": ("fasttext", "lightgbm"), "sbert-lightgbm": ("sbert", "lightgbm"),
+               "tfidf-mtl": ("tfidf", "mlp")}
+    for name, (encoder, learner) in configs.items():
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "model.json").write_text(json.dumps({"config": {"encoder": encoder, "learner": learner}}),
+                                                    encoding="utf-8")
+    for name, bases in (("stack", ["fasttext-lightgbm", "sbert-lightgbm"]), ("stack-light", ["fasttext-lightgbm"])):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "model.json").write_text(json.dumps({"config": {"encoder": "several", "learner": "stack"},
+                                                                "effort": {"bases": bases}}), encoding="utf-8")
+    board = {"pooled_winner": "fasttext-lightgbm",
+             "configs": {n: {"eligible": True, "composite": 0.5} for n in (*configs, "stack", "stack-light")}}
+    (tmp_path / "leaderboard.json").write_text(json.dumps(board), encoding="utf-8")
+    find_spec = router_module.importlib.util.find_spec
+    monkeypatch.setattr(router_module.importlib.util, "find_spec",
+                        lambda name: None if name == "torch" else find_spec(name))
+    assert Router(tmp_path).available == ["fasttext-lightgbm", "stack-light"]  # the image built without torch
+
+
+def test_a_copied_arena_folder_loads_its_own_encoders(tmp_path, monkeypatch):
+    """The service image copies the models elsewhere; nothing may be read from the source tree's path."""
+    pytest.importorskip("gensim")
+    from erp.arena import predictor
+    from erp.models.encoders import FastTextEncoder
+    from erp.serving.engine import default_models_dir
+
+    source = default_models_dir()
+    if not (source / "fasttext-lightgbm").exists():
+        pytest.skip("the trained models are not present")
+    shutil.copytree(source / "fasttext-lightgbm", tmp_path / "fasttext-lightgbm")
+    shutil.copytree(source / "encoders" / "fasttext", tmp_path / "encoders" / "fasttext")
+    read, load = [], FastTextEncoder.load
+    monkeypatch.setattr(FastTextEncoder, "load", classmethod(lambda cls, directory: read.append(directory) or
+                                                              load(directory)))
+    predictor.load(tmp_path / "fasttext-lightgbm")
+    assert read == [tmp_path / "encoders" / "fasttext"]
 
 
 def _story(**overrides) -> pd.Series:

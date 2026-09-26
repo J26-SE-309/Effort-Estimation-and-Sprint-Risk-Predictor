@@ -73,9 +73,12 @@ Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the r
    ```
 
 To run the service and its database together in Docker instead: `docker compose up --build`. The image is
-built from the repository root, because it holds the prediction engine and the trained models; it includes the
-CPU build of torch and the SBERT model (build with `--build-arg WITH_TORCH=false` for a smaller image that
-serves only the FastText and TF-IDF configurations, which the router uses).
+built from the repository root, because it holds the prediction engine and the trained models. By default it
+leaves out torch and serves the FastText and TF-IDF configurations, which are all the router picks; the SBERT
+ones, M3 and the stack show as "not installed" in `/api/v1/models`. To serve them too, build with torch (CPU
+build, XGBoost, CatBoost and the SBERT model, about 1.5 GB more): set `EFFORT_WITH_TORCH=true` before
+`docker compose up --build`. Locally, the same configurations need `pip install -e "ml-engine[serving-sbert]"`
+after the CPU build of torch.
 
 ### Database
 
@@ -103,10 +106,11 @@ once at start-up.
 | `POST /api/v1/feedback`, `POST /api/v1/outcomes` | A product owner's decision; what really happened (FR19) |
 
 NFR1 load test against a running service (10 users, each sending 50-story backlogs back to back):
-`python backend/loadtest.py`. On the development laptop, with 4 worker processes (the container default,
-`WEB_CONCURRENCY`), the 95th percentile was 1.2 s; with a single process it was 3.4 s. Explanations cost the
-most for TF-IDF + SVR / SVM (about 2 s per 50 stories, feature-group occlusion over an expensive kernel model);
-the router never picks it for a live project, but a pinned SVR / SVM will miss NFR1.
+`python backend/loadtest.py`. In the container (`docker compose up`: 4 worker processes with one native thread
+each, `WEB_CONCURRENCY` and `OMP_NUM_THREADS`), the 95th percentile was 0.53 s over 200 requests, using about
+900 MB of memory; one 50-story request alone takes 0.16 s. Explanations cost the most for TF-IDF + SVR / SVM
+(about 2 s per 50 stories, feature-group occlusion over an expensive kernel model); the router never picks it
+for a live project, but a pinned SVR / SVM will miss NFR1.
 
 The router (R1) answers with the arena's pooled winner unless a project's own winner is clearly better or a
 configuration is pinned; every prediction names its configuration, model version and the feature groups it used,

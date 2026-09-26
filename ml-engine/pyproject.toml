@@ -23,9 +23,11 @@ dev = ["pytest>=8"]
 # Text encoders that download pre-trained models (E3 SBERT; later E4). Install the CPU build of torch first:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 encoders = ["sentence-transformers>=3", "torch>=2.4"]
-# What the prediction service needs to load every arena configuration (SBERT and M3 also need the encoders
-# extra, i.e. torch).
-serving = ["xgboost>=3", "catboost>=1.2", "gensim>=4.4", "skops>=0.10", "safetensors>=0.4"]
+# What the prediction service needs for the configurations the router picks: FastText + LightGBM and TF-IDF with
+# a random forest or an SVM.
+serving = ["gensim>=4.4", "skops>=0.10"]
+# The service's other configurations: the SBERT ones, M3 and the stack (install the CPU build of torch first).
+serving-sbert = ["xgboost>=3", "catboost>=1.2", "safetensors>=0.4", "sentence-transformers>=3", "torch>=2.4"]
 # The Phase 4 arena: the serving learners plus tuning and experiment tracking. The multi-task network (M3) also
 # needs torch from the encoders extra.
 arena = ["xgboost>=3", "catboost>=1.2", "gensim>=4.4", "optuna>=4", "mlflow>=3", "skops>=0.10", "safetensors>=0.4"]

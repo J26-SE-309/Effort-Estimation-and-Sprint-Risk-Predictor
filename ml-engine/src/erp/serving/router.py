@@ -7,9 +7,12 @@
      on few stories, and a tiny lead is noise.
   4. Everyone else gets the pooled winner: the eligible configuration with the best composite score.
 Only configurations whose files are present can answer (DistilBERT's weights, for example, stay on the machine
-that fine-tuned them). Models are loaded once, on first use, and then kept in memory.
+that fine-tuned them), and only when the packages they run on are installed (the service image built without
+torch serves no SBERT, multi-task or DistilBERT model, nor the stack built on SBERT ones). Models are loaded once,
+on first use, and then kept in memory.
 """
 
+import importlib.util
 import json
 import threading
 from dataclasses import dataclass
@@ -20,6 +23,9 @@ from erp.models.confidence import COLD_START_SPRINTS
 
 MARGIN = 0.02
 MIN_HISTORY_SPRINTS = COLD_START_SPRINTS
+# Encoders and learners that need packages beyond the serving extra (they come with the serving-sbert extra).
+NEEDS = {"sbert": ("torch", "sentence_transformers"), "xgboost": ("xgboost",), "catboost": ("catboost",),
+         "mlp": ("torch", "safetensors"), "distilbert": ("torch", "transformers", "safetensors")}
 
 
 @dataclass(frozen=True)
@@ -34,7 +40,7 @@ class Router:
         self.models_dir = models_dir
         self.leaderboard = json.loads((models_dir / "leaderboard.json").read_text(encoding="utf-8"))
         self.available = sorted(p.parent.name for p in models_dir.glob(f"*/{predictor.MANIFEST}")
-                                if _complete(p.parent))
+                                if _usable(p.parent))
         self._loaded: dict = {}
         self._lock = threading.Lock()
 
@@ -76,9 +82,18 @@ class Router:
         return sorted(self._loaded)
 
 
-def _complete(directory: Path) -> bool:
-    """True when every model file model.json names is present (local-only weights may be absent elsewhere)."""
+def _usable(directory: Path) -> bool:
+    """True when every model file model.json names is present (local-only weights may be absent elsewhere) and the
+    packages the configuration runs on are installed. A stack is usable when all its base configurations are."""
     manifest = json.loads((directory / predictor.MANIFEST).read_text(encoding="utf-8"))
     files = [manifest.get(part, {}).get("model", {}).get("file") for part in ("effort", "risk")]
     files.append(manifest.get("joint", {}).get("file"))
-    return all((directory / f).exists() for f in files if f)
+    if not all((directory / f).exists() for f in files if f):
+        return False
+    bases = {base for part in ("effort", "risk") for base in manifest.get(part, {}).get("bases", [])}
+    if bases:
+        return all((directory.parent / base / predictor.MANIFEST).exists() and _usable(directory.parent / base)
+                   for base in bases)
+    config = manifest.get("config", {})
+    needs = {package for part in (config.get("encoder"), config.get("learner")) for package in NEEDS.get(part, ())}
+    return all(importlib.util.find_spec(package) is not None for package in needs)

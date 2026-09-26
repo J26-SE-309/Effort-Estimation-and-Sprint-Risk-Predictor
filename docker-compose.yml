@@ -31,6 +31,9 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        # true also serves the SBERT configurations, M3 and the stack (CPU torch and the SBERT model, ~1.5 GB).
+        WITH_TORCH: ${EFFORT_WITH_TORCH:-false}
     environment:
       DATABASE_URL: postgresql+psycopg://effort_user:${EFFORT_DB_PASSWORD:-effort-local}@effort-db:5432/effort_db
     ports:

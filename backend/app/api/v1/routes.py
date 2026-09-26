@@ -4,6 +4,11 @@ Predictions come from the Comparative Model Arena's configurations (ml-engine/mo
 prediction engine in ml-engine (erp.serving): the router picks the configuration (FR11) unless the product owner
 pinned one (FR12), and every prediction carries its interval and calibrated probability (FR13), its reasons
 (FR14), its recommendations (FR15), the feature groups it used (FR17) and its model version (FR21).
+
+The prediction endpoints are CPU-bound and deliberately run on the worker's event loop (`async def` without an
+await): a busy worker process then accepts no new connection, and the kernel hands it to an idle one. As plain
+`def` endpoints they ran in a thread pool while the free event loop kept accepting, so one worker took nearly all
+concurrent requests and the others idled (NFR1 missed: p95 2.3 s with 4 workers on Linux).
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -49,13 +54,13 @@ def _run(request: EstimateRequest, sprint_level: bool = False) -> dict:
 
 
 @router.post("/estimate", response_model=EstimateResponse)
-def estimate(request: EstimateRequest) -> dict:
+async def estimate(request: EstimateRequest) -> dict:
     """Estimate effort and sprint risk for every story in a backlog, in the order given."""
     return _run(request)
 
 
 @router.post("/risk", response_model=SprintRiskResponse)
-def sprint_risk(request: EstimateRequest) -> dict:
+async def sprint_risk(request: EstimateRequest) -> dict:
     """Sprint-level risk of committing to this backlog (FR16, Monte Carlo), with the story predictions.
 
     Over-commitment needs the team's capacity: sprint_context.capacity_points or team_context.velocity_mean.
@@ -64,7 +69,7 @@ def sprint_risk(request: EstimateRequest) -> dict:
 
 
 @router.post("/recommend", response_model=RecommendResponse)
-def recommend(request: EstimateRequest) -> dict:
+async def recommend(request: EstimateRequest) -> dict:
     """Planning recommendations for a backlog (FR15): per story, and for the sprint as a whole."""
     result = _run(request, sprint_level=True)
     return {
@@ -75,7 +80,7 @@ def recommend(request: EstimateRequest) -> dict:
 
 
 @router.post("/compare", response_model=CompareResponse)
-def compare(request: CompareRequest) -> dict:
+async def compare(request: CompareRequest) -> dict:
     """The same backlog through several configurations side by side (FR12). Not recorded in the audit log."""
     arguments = engine_arguments(request)
     try:

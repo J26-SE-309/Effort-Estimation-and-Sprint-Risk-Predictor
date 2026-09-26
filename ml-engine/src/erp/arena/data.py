@@ -126,10 +126,11 @@ class ArenaData:
         return cached
 
 
-def load_encoder(name: str):
+def load_encoder(name: str, directory: Path = ENCODERS_DIR):
+    """The fitted encoder shared by an arena's configurations: `directory` is that arena's encoders folder."""
     if name == "sbert":
         return encoders.SbertEncoder()
-    return encoders.ENCODERS[name].load(ENCODERS_DIR / name)
+    return encoders.ENCODERS[name].load(directory / name)
 
 
 def text_columns(name: str) -> list[str]:
