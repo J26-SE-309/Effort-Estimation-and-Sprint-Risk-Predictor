@@ -5,6 +5,10 @@ Run against a running service (docker compose up, or uvicorn):
     python loadtest.py --url http://host:8004 --users 10 --requests 20 --stories 50
 Every user sends its backlog again as soon as the previous answer arrives; the report gives the response-time
 percentiles over all requests (after one warm-up request per user).
+
+Every prediction is written to the service's audit log (about 2.3 KB a story; the default run adds 5,500 rows), so
+the test refuses to run against a service using the hosted database (Neon's free plan holds 0.5 GB) unless told
+to: run the service on the local database, e.g. with DATABASE_URL set to the local effort-db.
 """
 
 import argparse
@@ -18,15 +22,16 @@ from concurrent.futures import ThreadPoolExecutor
 BUDGET_SECONDS = 2.0
 
 
-def backlog(stories: int, user: int) -> dict:
+def backlog(stories: int, user: int, project: str | None = None) -> dict:
     return {
-        "project_id": f"LOAD-{user}",
+        "project_id": project or f"LOAD-{user}",
         "stories": [{"story_id": f"U{user}-S{i}", "title": f"Story {i}: export report type {i % 7} for user {user}",
                      "description": "As an analyst I want to export the report so that I can share it. It must be "
                                     "fast and handle large reports.",
                      "story_points": [1, 2, 3, 5, 8][i % 5], "blocker_count": int(i % 6 == 0)}
                     for i in range(stories)],
-        "team_context": {"velocity_mean": 30, "velocity_variance": 25, "closed_sprints": 10},
+        # A project with sprint history supplies its own team context.
+        "team_context": None if project else {"velocity_mean": 30, "velocity_variance": 25, "closed_sprints": 10},
     }
 
 
@@ -41,20 +46,33 @@ def post(url: str, payload: dict) -> float:
     return time.perf_counter() - started
 
 
+def database_location(url: str) -> str:
+    with urllib.request.urlopen(f"{url}/health", timeout=30) as response:
+        return json.loads(response.read()).get("database_location", "local")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--url", default="http://127.0.0.1:8004")
     parser.add_argument("--users", type=int, default=10)
     parser.add_argument("--requests", type=int, default=10)
     parser.add_argument("--stories", type=int, default=50)
+    parser.add_argument("--project", help="every user estimates for this project (e.g. one with sprint history); "
+                                          "default: a project of its own without history")
+    parser.add_argument("--allow-hosted-database", action="store_true",
+                        help="run even though the service records into the hosted database")
     args = parser.parse_args()
+    if database_location(args.url) == "hosted" and not args.allow_hosted_database:
+        rows = args.users * (args.requests + 1) * args.stories
+        raise SystemExit(f"The service records into the hosted database: this run would add {rows:,} audit rows "
+                         "(~2.3 KB each). Point the service at the local database, or pass --allow-hosted-database.")
 
     times: list[float] = []
     lock = threading.Lock()
     start_together = threading.Barrier(args.users)
 
     def user(number: int) -> None:
-        payload = backlog(args.stories, number)
+        payload = backlog(args.stories, number, args.project)
         post(args.url, payload)  # warm-up
         start_together.wait()
         for _ in range(args.requests):

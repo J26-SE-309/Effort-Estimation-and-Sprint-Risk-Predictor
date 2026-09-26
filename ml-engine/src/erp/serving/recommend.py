@@ -86,12 +86,22 @@ def _message(action: str, story: pd.Series) -> str | None:
             return f"It depends on {depends} other issue{'s' * (depends > 1)}. Make sure they are finished first."
         return None
     if action == "reduce_sprint_scope":
-        ratio = _number(story["commitment_to_velocity_ratio"])
-        if ratio is None or ratio <= OVERLOAD_RATIO:
+        load = sprint_load(story)
+        if load is None or load <= OVERLOAD_RATIO:
             return None
-        return (f"The sprint is committed at {ratio:.0%} of the team's recent velocity. Move lower-priority stories "
+        return (f"The sprint is committed at {load:.0%} of the team's recent velocity. Move lower-priority stories "
                 "out of the sprint.")
     return None
+
+
+def sprint_load(story: pd.Series) -> float | None:
+    """The whole sprint's committed points over the team's recent velocity. The model's own feature
+    (commitment_to_velocity_ratio) leaves the story's points out, so the effort model cannot read its answer
+    there; a sentence about the sprint counts every story, so all of a sprint's stories show the same number."""
+    velocity, others = _number(story.get("team_velocity_rolling")), _number(story.get("sprint_committed_points"))
+    if not velocity or velocity <= 0 or others is None:
+        return None
+    return (others + (_number(story.get("story_points")) or 0.0)) / velocity
 
 
 def sprint_level(simulation: dict) -> list[dict]:

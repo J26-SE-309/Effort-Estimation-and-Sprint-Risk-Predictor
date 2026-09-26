@@ -31,11 +31,18 @@ def get_engine():
 
 
 def engine_arguments(request: EstimateRequest) -> dict:
-    """The request as the engine takes it: plain dicts with the API's field names."""
+    """The request as the engine takes it: plain dicts with the API's field names. Team and sprint context the
+    caller left out come from the project's sprint history (app.history), when it has one."""
+    from app import history
+
+    stories = [story.model_dump() for story in request.stories]
+    team, sprint = history.context(request.project_id, request.sprint_id, frozenset(s["story_id"] for s in stories))
     return {
         "project_id": request.project_id,
-        "stories": [story.model_dump() for story in request.stories],
-        "team": request.team_context.model_dump() if request.team_context else None,
-        "sprint_context": request.sprint_context.model_dump() if request.sprint_context else None,
+        "stories": stories,
+        "team": history.merged(request.team_context.model_dump() if request.team_context else None, team,
+                               "velocity_mean"),
+        "sprint_context": history.merged(request.sprint_context.model_dump() if request.sprint_context else None,
+                                         sprint, "length_days"),
     }
 

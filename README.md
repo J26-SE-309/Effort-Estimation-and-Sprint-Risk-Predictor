@@ -55,7 +55,8 @@ Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the r
    .venv\Scripts\python -m pip install -e "ml-engine[dev,serving]" -e "backend[dev]"
    ```
 
-2. Start this component's database, then run the API with auto-reload:
+2. Start this component's local database (skip it when `backend/.env` names the hosted one; see
+   [Database](#database)), then run the API with auto-reload:
 
    ```powershell
    docker compose up -d effort-db
@@ -82,13 +83,34 @@ after the CPU build of torch.
 
 ### Database
 
-This component has its own PostgreSQL database and account. No other component connects to it.
+This component has its own PostgreSQL database and account. No other component connects to it. It holds the
+prediction audit log (FR21: IDs, the model and version, the feature values and the answer; no story text),
+feedback and outcomes (FR19) and pinned configurations (FR12).
 
-| Setting | Local value |
-|---|---|
-| Host and port | `localhost:5444` |
-| Database | `effort_db` |
-| User / password | `effort_user` / `effort-local` |
+- **Hosted (the real data): Neon**, region Singapore. Put its direct connection string (host without
+  `-pooler`) in `backend/.env` as `DATABASE_URL=postgresql://...`, as Neon gives it (see `backend/.env.example`).
+  `.env` is never committed. Both `uvicorn` and `docker compose up` then use it.
+- **Local (development): the `effort-db` container**, used when `backend/.env` has no `DATABASE_URL`:
+
+  | Setting | Local value |
+  |---|---|
+  | Host and port | `localhost:5444` |
+  | Database | `effort_db` |
+  | User / password | `effort_user` / `effort-local` |
+
+- **Tests** use an in-memory SQLite database and never touch either.
+
+The service applies the migrations in `backend/app/migrations` (Alembic) at start-up. Changing a table needs a
+new migration: see [`backend/docs/migration-guide.md`](backend/docs/migration-guide.md) for what migrations are
+and the steps.
+
+Neon's free plan keeps 6 hours of history, and the feedback and outcomes are evaluation data, so they are backed
+up daily: the Windows scheduled task "Synapse effort database backup" runs `python -m app.backup --keep 30` from
+`backend/` at 21:00 (or when the laptop is next on), writing every table to
+`Datasets/effort-risk/backups/effort-db-<time>.jsonl.gz`, keeping the newest 30, and logging to `backup.log` there.
+Change or remove it in Task Scheduler. `python -m app.backup --restore FILE` restores a backup into an empty
+database. The health check does not query a hosted database: the web app polls health every 15 s,
+which would otherwise keep Neon from ever suspending (100 compute-hours a month on the free plan).
 
 ### API contract
 
@@ -104,21 +126,95 @@ once at start-up.
 | `GET /api/v1/models` | The arena's configurations with their leaderboard metrics (FR10) |
 | `GET / PUT / DELETE /api/v1/projects/{id}/pin` | Pin a configuration for a project, overriding the router (FR12) |
 | `POST /api/v1/feedback`, `POST /api/v1/outcomes` | A product owner's decision; what really happened (FR19) |
+| `GET /api/v1/projects/{id}/predictions` | Past predictions, newest first, with the latest decision and outcome of each (filter by sprint or story; `limit`, `offset`) |
+| `GET /api/v1/predictions/{prediction_id}` | One prediction as it was sent, the feature values the models saw (FR21), its feedback and outcomes |
+| `GET /api/v1/projects/{id}/summary` | The project's predictions at a glance: risk levels, configurations, decisions, and accuracy against outcomes so far |
+| `GET / POST /api/v1/projects/{id}/history`, `PUT / DELETE .../sprints/{sprint_id}` | The team's sprint history (see [Sprint history](#sprint-history)) |
 
 NFR1 load test against a running service (10 users, each sending 50-story backlogs back to back):
 `python backend/loadtest.py`. In the container (`docker compose up`: 4 worker processes with one native thread
 each, `WEB_CONCURRENCY` and `OMP_NUM_THREADS`), the 95th percentile was 0.53 s over 200 requests, using about
-900 MB of memory; one 50-story request alone takes 0.16 s. Explanations cost the most for TF-IDF + SVR / SVM
+900 MB of memory; one 50-story request alone takes 0.16 s. With the hosted database it was 0.56 s: the audit log
+is written after the response is sent and pins are cached for 10 s, so predictions do not wait for the database.
+Every prediction is recorded, so the load test refuses to run against a service using the hosted database; run
+it with the local one. Explanations cost the most for TF-IDF + SVR / SVM
 (about 2 s per 50 stories, feature-group occlusion over an expensive kernel model); the router never picks it
 for a live project, but a pinned SVR / SVM will miss NFR1.
 
 The router (R1) answers with the arena's pooled winner unless a project's own winner is clearly better or a
 configuration is pinned; every prediction names its configuration, model version and the feature groups it used,
 and is stored in the audit log (FR21). Requests may add the team's recent delivery (`team_context`) and the
-sprint (`sprint_context`); without them the prediction is flagged as a cold start and its confidence is lower.
+sprint (`sprint_context`); otherwise they come from the project's sprint history, and without either the
+prediction is flagged as a cold start and its confidence is lower.
 The shared JSON Schemas live in
 [`Synapse-Web/contracts/effort-estimation`](https://github.com/J26-SE-309/Synapse-Web/tree/main/contracts/effort-estimation);
 keep them in sync with `backend/app/schemas.py`.
+
+### Sprint history
+
+The models learned from each team's past sprints: velocity (points finished in the last 3 closed sprints), how
+much it varies, how often stories spill over or are reopened, and how long stories take (FR5). **The platform owns
+the sprints** (starting, adding stories, closing); this service keeps the sprint records as the history its
+predictions use. The platform sends each sprint whenever it changes (`PUT .../sprints/{sprint_id}`). Every record
+is labelled with where it came from: `platform` (sent sprint by sprint), `imported` (a CSV through the API),
+`tawos` (real TAWOS sprints, development data) or `synthetic` (made up for tests and demos, never used in any
+evaluation); the development data is deleted once the platform sends real sprints.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/v1/projects/{id}/history` | What the models see about the team now, whether it is still a cold start, and its sprints |
+| `POST /api/v1/projects/{id}/history` | Import the project's sprint history from a CSV (`text/csv`); replaces its records |
+| `PUT /api/v1/projects/{id}/sprints/{sprint_id}` | The platform's sprint as it is now (JSON, the same fields as the CSV); replaces that sprint only |
+| `DELETE /api/v1/projects/{id}/sprints/{sprint_id}` | Remove a sprint and its stories |
+
+When the platform sends a closed sprint, each story's latest prediction for that sprint gets its outcome (FR19:
+done or not, the final points), updated if the sprint is sent again; and a story sent without its spillover
+outcome (R1) gets it from `done_in_sprint` when this was its first sprint. Predictions must carry the platform's
+`sprint_id` for this.
+
+Every estimate fills the team and sprint context from the project's history; values the caller sends win, and
+`feature_sources` says which answered (`history` or `request`). After 3 closed sprints a team is no longer a cold
+start. The numbers are computed by `ml-engine/src/erp/serving/history.py` with the training pipeline's own code
+(`erp/features/team.py`); `erp-history-parity` replays the real TAWOS sprints through it and compares with the
+features training used ([`history-parity.md`](ml-engine/reports/history-parity.md)): every feature matches for
+all 20,827 stories, except the cycle time of 31 stories, where stories resolved in the same second meet at the
+edge of "the last 50".
+
+**The record format (the CSV import):** one row per story per sprint (a story carried into the next sprint has a
+row in each), with a header. A row without a `sprint_id` is a resolved story that was never in a sprint: only its
+cycle time counts. Times are ISO 8601 (UTC when no zone is given). Example:
+[`backend/examples/sprint-history-synthetic.csv`](backend/examples/sprint-history-synthetic.csv).
+
+| Column | Meaning |
+|---|---|
+| `sprint_id`, `sprint_name` | The sprint (required for a story in a sprint: `sprint_started_at`, `sprint_planned_end`, `committed_at`) |
+| `sprint_started_at`, `sprint_planned_end`, `sprint_closed_at` | When the sprint started, was planned to end, and closed (empty while it runs) |
+| `story_id`, `issue_type` | The story (required); Story, Task, Bug, Improvement or New Feature |
+| `committed_at`, `left_at` | When it was committed to the sprint; when it was taken out before the end (empty: still in) |
+| `points_at_commit`, `points_at_close` | Its story points then |
+| `done_in_sprint` | `true` if finished in this sprint (the sprint's velocity) |
+| `spilled_over`, `reopened` | At the story's first sprint: not done by the end (risk rule R1); reopened after done, then or in the next sprint (R6) |
+| `started_at`, `resolved_at`, `hours_in_progress` | When work started, when it was resolved, and the hours it spent in progress (cycle time) |
+
+The import checks every row (dates in order, one value per sprint, no negative points, each story once per sprint)
+and lists every problem by row; nothing is imported while there are any.
+
+Development data, run from `backend/` (into the database `backend/.env` names, else the local one):
+
+```powershell
+python -m app.devdata load                    # TAWOS-MESOS and TAWOS-INDY (needs the Datasets folder) and the SYN-* teams
+python -m app.devdata list
+python -m app.devdata delete                  # all development records, and those projects' predictions
+```
+
+The `SYN-*` teams cover what TAWOS lacks: a brand-new team, teams with 1 and 2 closed sprints (still cold starts),
+steady and erratic teams, and a team that never estimates. They are synthetic and must not be used to evaluate
+the models (ML guide 7.2); name them in the proposal's AI-use disclosure (Appendix H).
+
+The other inputs (story text, the components' signals, tracker links) arrive with every request, so their
+synthetic data is ready-made requests: [`backend/examples/backlogs`](backend/examples/backlogs) has a backlog for
+each `SYN-*` team's running sprint, the same backlog without the components' signals (FR17), and odd edge cases
+(`python -m app.devdata backlogs` regenerates them).
 
 ## ML pipeline: TAWOS data
 

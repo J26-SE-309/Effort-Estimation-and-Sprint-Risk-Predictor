@@ -26,9 +26,10 @@ AC_FIELDS = ("ac_completeness_score", "invest_compliance_flags")
 TRACE_FIELDS = ("traceability_coverage_pct", "unlinked_artifact_count", "has_linked_tests")
 INVEST = ("independent", "valuable", "testable")
 
-# Where each feature group came from, per story: component (Components 1-3), request (the caller), text (computed
-# here from the story), proxy (our stand-in for a component), missing (unknown, the models see NaN).
-SOURCES = ("component", "request", "text", "proxy", "missing")
+# Where each feature group came from, per story: component (Components 1-3), request (the caller), history (the
+# project's stored sprint records, erp.serving.history), text (computed here from the story), proxy (our stand-in
+# for a component), missing (unknown, the models see NaN).
+SOURCES = ("component", "request", "history", "text", "proxy", "missing")
 
 
 def full_description(description: str | None, criteria: list[str] | None) -> str:
@@ -122,7 +123,8 @@ def build(project_id: str, stories: list[dict], team: dict | None = None,
     f["mean_cycle_time_hours"] = _get(team, "mean_cycle_time_hours")
     f["historical_spillover_rate"] = _get(team, "spillover_rate")
     f["reopen_rate"] = _get(team, "reopen_rate")
-    sources["team_history"] = "request" if team and team.get("velocity_mean") is not None else "missing"
+    known = team and team.get("velocity_mean") is not None
+    sources["team_history"] = (team.get("source") or "request") if known else "missing"
 
     # This sprint: the backlog itself says what else is committed; length, parallel sprints and WIP come from
     # the caller.
@@ -136,7 +138,8 @@ def build(project_id: str, stories: list[dict], team: dict | None = None,
     f["commitment_to_velocity_ratio"] = f["sprint_committed_points"] / velocity.where(velocity > 0)
     f["wip_at_commitment"] = _get(sprint, "wip")
     f["in_progress_at_commitment"] = [bool(s.get("in_progress")) for s in stories]
-    sources["sprint"] = "request" if sprint and sprint.get("length_days") is not None else "missing"
+    known = sprint and sprint.get("length_days") is not None
+    sources["sprint"] = (sprint.get("source") or "request") if known else "missing"
 
     # Metadata
     f["added_mid_sprint"] = [bool(s.get("added_mid_sprint")) for s in stories]

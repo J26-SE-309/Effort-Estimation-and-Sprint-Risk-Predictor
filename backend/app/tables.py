@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -65,3 +65,47 @@ class PinnedConfiguration(Base):
     project_id: Mapped[str] = mapped_column(String(100), primary_key=True)
     configuration_id: Mapped[str] = mapped_column(String(100))
     pinned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+# ------------------------------------------------------------------ sprint history (FR5)
+# Copies of the platform's sprint records, which the platform owns; the record format is erp.serving.history's.
+# Each row says where it came from: imported (a CSV through the API), tawos (real TAWOS sprints, development
+# data) or synthetic (made up for tests and demos, never for evaluation).
+
+
+class HistorySprint(Base):
+    """A project's sprint."""
+
+    __tablename__ = "history_sprints"
+
+    project_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    sprint_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(200))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    planned_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), doc="empty while it runs")
+    source: Mapped[str] = mapped_column(String(20), index=True)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class HistoryItem(Base):
+    """A story committed to a sprint, or (no sprint) a resolved story that counts only for the cycle time."""
+
+    __tablename__ = "history_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, doc="keeps the records' order")
+    project_id: Mapped[str] = mapped_column(String(100), index=True)
+    sprint_id: Mapped[str | None] = mapped_column(String(100))
+    story_id: Mapped[str] = mapped_column(String(200))
+    issue_type: Mapped[str | None] = mapped_column(String(50))
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), doc="empty: still in at the end")
+    points_at_commit: Mapped[float | None] = mapped_column(Float)
+    points_at_close: Mapped[float | None] = mapped_column(Float)
+    done_in_sprint: Mapped[bool | None] = mapped_column(Boolean)
+    spilled_over: Mapped[bool | None] = mapped_column(Boolean, doc="R1 at the story's first commitment")
+    reopened: Mapped[bool | None] = mapped_column(Boolean, doc="R6 at the story's first commitment")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    hours_in_progress: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(20), index=True)

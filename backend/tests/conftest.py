@@ -5,8 +5,9 @@ os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
-from app import db, store  # noqa: E402
+from app import db, history, store  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.tables import Base  # noqa: E402
 
@@ -15,8 +16,11 @@ from app.tables import Base  # noqa: E402
 def client():
     """The service with the real trained models from ml-engine/models/arena-v1 and a fresh database."""
     Base.metadata.drop_all(db.engine)
+    with db.engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     store.reset()
-    with TestClient(create_app()) as test_client:  # runs the start-up: models loaded, tables created
+    history.forget()
+    with TestClient(create_app()) as test_client:  # runs the start-up: models loaded, database migrated
         yield test_client
 
 

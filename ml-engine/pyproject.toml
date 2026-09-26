@@ -46,6 +46,8 @@ erp-train-arena = "erp.arena.train:main"
 erp-arena-report = "erp.arena.report:main"
 erp-run-hypotheses = "erp.arena.hypotheses:main"
 erp-fit-intervals = "erp.arena.intervals:main"
+erp-history-parity = "erp.serving.replay:main"
+erp-unseen-projects = "erp.arena.unseen:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]

@@ -1,0 +1,177 @@
+{
+  "_synthetic": "Synthetic backlog (backend/app/backlogs.py): made-up stories, component signals and links for development, tests and demos. Never use it to evaluate the models (ML guide 7.2).",
+  "project_id": "SYN-TWO",
+  "sprint_id": "SYN-TWO-S3",
+  "stories": [
+    {
+      "story_id": "SYN-TWO-B1",
+      "title": "As a tutor I want to message a student before a session so that we can agree what to cover",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Minor",
+      "story_points": 5.0,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 2,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.31,
+        "vague_term_count": 1,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-TWO-B2",
+      "title": "Tutor dashboard",
+      "description": "Tutors need a dashboard with the usual stuff.",
+      "acceptance_criteria": [],
+      "issue_type": "Improvement",
+      "priority": "Major",
+      "story_points": 8.0,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 0,
+      "linked_issue_count": 1,
+      "has_epic": false,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.91,
+        "vague_term_count": 2,
+        "missing_info_flag_count": 2,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": false,
+          "valuable": false,
+          "estimable": false,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": true
+      }
+    },
+    {
+      "story_id": "SYN-TWO-B3",
+      "title": "As a student I want to search tutors by subject and hourly price so that I find someone I can afford",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Trivial",
+      "story_points": 5.0,
+      "blocker_count": 0,
+      "dep_in_degree": 2,
+      "dep_out_degree": 0,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": true,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.37,
+        "vague_term_count": 1,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-TWO-B4",
+      "title": "As a student I want to cancel a booked session up to 24 hours before it starts so that I am not charged for a session I miss",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": 3.0,
+      "blocker_count": 0,
+      "dep_in_degree": 1,
+      "dep_out_degree": 0,
+      "linked_issue_count": 1,
+      "has_epic": false,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.36,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.33,
+        "unlinked_artifact_count": 2,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-TWO-B5",
+      "title": "Mobile support",
+      "description": "Make the site work nicely on phones where possible.",
+      "acceptance_criteria": [],
+      "issue_type": "Improvement",
+      "priority": "Minor",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 1,
+      "dep_out_degree": 0,
+      "linked_issue_count": 1,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.82,
+        "vague_term_count": 3,
+        "missing_info_flag_count": 2,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": false,
+          "valuable": false,
+          "estimable": false,
+          "small": false,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    }
+  ]
+}

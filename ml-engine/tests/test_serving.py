@@ -106,7 +106,8 @@ def test_a_copied_arena_folder_loads_its_own_encoders(tmp_path, monkeypatch):
 def _story(**overrides) -> pd.Series:
     values = {"title": "Improve search", "description_text": "Make it fast and user-friendly.",
               "has_acceptance_criteria": False, "ac_completeness_score": 0.0, "has_linked_tests": np.nan,
-              "blocker_count": 0, "dep_out_degree": 0, "commitment_to_velocity_ratio": np.nan}
+              "blocker_count": 0, "dep_out_degree": 0, "sprint_committed_points": np.nan, "story_points": np.nan,
+              "team_velocity_rolling": np.nan}
     return pd.Series({**values, **overrides})
 
 
@@ -117,9 +118,16 @@ def test_recommendations_only_for_reasons_the_model_gave_and_only_when_actionabl
                {"factor": "Sprint load and timing"}]
     actions = [r["action"] for r in recommend.for_story(risky, _story(), reasons)]
     assert actions == ["refine_requirement"]  # no dependencies to resolve, sprint load unknown
-    loaded = _story(blocker_count=2, commitment_to_velocity_ratio=1.4)
+    loaded = _story(blocker_count=2, sprint_committed_points=40, story_points=2, team_velocity_rolling=30)
     actions = [r["action"] for r in recommend.for_story(risky, loaded, reasons)]
     assert actions == ["refine_requirement", "resolve_dependency", "reduce_sprint_scope"]
+    # The whole sprint's load, the story's own points included: every story of the sprint says the same.
+    other = _story(sprint_committed_points=34, story_points=8, team_velocity_rolling=30)
+    messages = {recommend.for_story(risky, s, reasons)[-1]["message"] for s in (loaded, other)}
+    assert messages == {"The sprint is committed at 140% of the team's recent velocity. Move lower-priority "
+                        "stories out of the sprint."}
+    fits = _story(sprint_committed_points=28, story_points=3, team_velocity_rolling=30)  # 103%: no advice
+    assert "reduce_sprint_scope" not in [r["action"] for r in recommend.for_story(risky, fits, reasons)]
     calm = {**risky, "sprint_risk_level": "low"}
     assert recommend.for_story(calm, loaded, reasons) == []
     huge = {**calm, "predicted_story_points": 20, "effort_category": "extra_large"}
