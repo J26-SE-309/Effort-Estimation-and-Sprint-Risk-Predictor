@@ -1,0 +1,201 @@
+{
+ "config": {
+  "id": "stack",
+  "label": "Stacked ensemble",
+  "encoder": "several",
+  "learner": "stack",
+  "role": "Combines complementary learner strengths"
+ },
+ "arena": "arena-v1",
+ "code": {
+  "commit": "1b02b928f3a382f19646aa5ca35984d4d814f533",
+  "uncommitted_changes": false
+ },
+ "encoder": {
+  "name": "several",
+  "bases": "each base uses its own encoder"
+ },
+ "data": {
+  "source": "TAWOS v1.1",
+  "stories": 20827,
+  "split": {
+   "train": 13889,
+   "cal": 3605,
+   "test": 3333
+  }
+ },
+ "effort": {
+  "bases": [
+   "sbert-xgboost",
+   "fasttext-lightgbm",
+   "sbert-lightgbm"
+  ],
+  "meta": {
+   "model": "linear blend of log(1 + points), non-negative weights",
+   "weights": [
+    0.581085,
+    0.484931,
+    0.0
+   ],
+   "intercept": -0.10275
+  },
+  "intervals": {
+   "method": "split conformal on log(1 + story points)",
+   "quantiles": {
+    "0.8": 0.6333686634333883,
+    "0.9": 0.7827756206566386
+   }
+  }
+ },
+ "risk": {
+  "bases": [
+   "fasttext-lightgbm",
+   "sbert-xgboost",
+   "sbert-lightgbm"
+  ],
+  "meta": {
+   "model": "logistic regression on the logits of the bases' scores",
+   "weights": [
+    0.542517,
+    0.509191,
+    0.132854
+   ],
+   "intercept": -0.03359
+  },
+  "calibrator": {
+   "method": "isotonic",
+   "x": [
+    0.098144,
+    0.11412,
+    0.114949,
+    0.160706,
+    0.160765,
+    0.213474,
+    0.213639,
+    0.228883,
+    0.228962,
+    0.283571,
+    0.283711,
+    0.299025,
+    0.299076,
+    0.363203,
+    0.363292,
+    0.365784,
+    0.366053,
+    0.368282,
+    0.368356,
+    0.404175,
+    0.404888,
+    0.436169,
+    0.436195,
+    0.447061,
+    0.447363,
+    0.448932,
+    0.448978,
+    0.483715,
+    0.484348,
+    0.487657,
+    0.48784,
+    0.507355,
+    0.507808,
+    0.531975,
+    0.53202,
+    0.598493,
+    0.598664,
+    0.656084,
+    0.656576,
+    0.71216,
+    0.712168,
+    0.885269,
+    0.893828,
+    0.969149
+   ],
+   "y": [
+    0.0,
+    0.0,
+    0.153061,
+    0.153061,
+    0.288288,
+    0.288288,
+    0.291667,
+    0.291667,
+    0.315254,
+    0.315254,
+    0.333333,
+    0.333333,
+    0.368293,
+    0.368293,
+    0.380952,
+    0.380952,
+    0.388889,
+    0.388889,
+    0.462185,
+    0.462185,
+    0.524444,
+    0.524444,
+    0.53125,
+    0.53125,
+    0.538462,
+    0.538462,
+    0.55477,
+    0.55477,
+    0.578947,
+    0.578947,
+    0.601626,
+    0.601626,
+    0.621622,
+    0.621622,
+    0.651106,
+    0.651106,
+    0.651515,
+    0.651515,
+    0.731183,
+    0.731183,
+    0.761194,
+    0.761194,
+    0.806452,
+    0.806452
+   ]
+  },
+  "threshold": 0.334,
+  "bands": {
+   "medium": 0.3,
+   "high": 0.6
+  }
+ },
+ "selection": {
+  "rule": "the 3 best configurations per task by their inner-fold tuning score",
+  "inner_fold_scores": {
+   "tfidf-rf": {
+    "effort": 2.2065922263195152,
+    "risk": 0.6943453148356766
+   },
+   "tfidf-svm": {
+    "effort": 2.1276561839990746,
+    "risk": 0.6860953302791181
+   },
+   "fasttext-lightgbm": {
+    "effort": 2.0811519551623308,
+    "risk": 0.7128774533790583
+   },
+   "sbert-xgboost": {
+    "effort": 2.072905526559162,
+    "risk": 0.7127514844780437
+   },
+   "sbert-lightgbm": {
+    "effort": 2.0848607315381797,
+    "risk": 0.7124480765038564
+   },
+   "sbert-catboost": {
+    "effort": 2.096762954618488,
+    "risk": 0.7092541412131286
+   }
+  },
+  "meta_fitted_on": "10,709 inner-fold predictions (training split only)"
+ },
+ "created": "2026-09-26T08:07:11+00:00",
+ "check": {
+  "round_trip": "identical predictions for all stories after reloading from disk",
+  "size_mb": 0.0
+ }
+}
