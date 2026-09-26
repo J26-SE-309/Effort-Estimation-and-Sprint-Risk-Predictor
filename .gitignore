@@ -1,5 +1,6 @@
 # Only generated and heavy files are ignored: source code, configuration and docs are always committed.
-# Keep datasets and trained models in AgilePlatform/Datasets, next to the repositories.
+# Data lives in AgilePlatform/Datasets, next to the repositories. Trained models are committed under
+# ml-engine/models/ as LightGBM text files plus JSON (small, no pickles); heavy weight formats stay ignored.
 
 # Secrets: commit .env.example, never .env
 .env

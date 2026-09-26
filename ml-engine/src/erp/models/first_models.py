@@ -3,16 +3,14 @@
 Correctly computed baselines, then SBERT + LightGBM for effort (M1) and risk (M2), trained on the oldest 60%
 of each project's sprints, tuned (early stopping, risk threshold) on the next 20% and scored once on the most
 recent 20%. Two reduced versions of each model, text only and structured features only, show what each half
-contributes. Writes:
-  Datasets/effort-risk/models/first/   m1.txt and m2.txt (LightGBM) and meta.json
-  reports/first-models.md              the results
+contributes. Writes reports/first-models.md. The deployable models, with their calibration, intervals and
+explanations, are built by erp-train-bundle (erp/models/train_bundle.py).
 
 Usage:
     erp-train-first                         # writes ml-engine/reports/first-models.md
 """
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -22,13 +20,12 @@ from erp import config
 from erp.explore.profile_tawos import md_table
 from erp.features import catalog
 from erp.models import encoders, metrics, split
+from erp.models.inputs import design
 
-CATEGORICAL = ["issue_type", "priority_level", "project_key"]
 SEED = 42
 LGBM = {"learning_rate": 0.05, "num_leaves": 31, "min_child_samples": 20, "colsample_bytree": 0.5,
         "subsample": 0.8, "subsample_freq": 1, "n_estimators": 3000, "random_state": SEED, "verbose": -1}
 EARLY_STOPPING = 100
-MODELS_DIR = config.WORK_DIR / "models" / "first"
 
 
 def load_dataset(interim: Path) -> pd.DataFrame:
@@ -39,27 +36,6 @@ def load_dataset(interim: Path) -> pd.DataFrame:
     frame = snapshot[keep].merge(features, on="Issue_ID").merge(labels, on="Issue_ID").set_index("Issue_ID")
     frame["split"] = split.temporal_split(frame)
     return frame
-
-
-def structured(frame: pd.DataFrame, task: str) -> pd.DataFrame:
-    """The catalogue features as model inputs. M1 never sees story_points: they are its answer."""
-    names = [n for n in catalog.names() if not (task == "effort" and n == "story_points")]
-    x = frame[names].copy()
-    for column in x.columns:
-        if column in CATEGORICAL:
-            x[column] = pd.Categorical(x[column].astype(str))
-        elif pd.api.types.is_bool_dtype(x[column]):
-            x[column] = x[column].astype(int)
-    return x
-
-
-def design(frame: pd.DataFrame, text: np.ndarray, task: str, use_text: bool, use_features: bool) -> pd.DataFrame:
-    parts = []
-    if use_text:
-        parts.append(pd.DataFrame(text, index=frame.index, columns=encoders.SbertEncoder().columns()))
-    if use_features:
-        parts.append(structured(frame, task))
-    return pd.concat(parts, axis=1)
 
 
 def fit(task: str, x: pd.DataFrame, y: pd.Series, parts: pd.Series):
@@ -225,7 +201,6 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--report", type=Path, default=config.REPO_ROOT / "ml-engine" / "reports" / "first-models.md")
     parser.add_argument("--interim", type=Path, default=config.INTERIM_DIR)
-    parser.add_argument("--models", type=Path, default=MODELS_DIR)
     args = parser.parse_args(argv)
 
     frame = load_dataset(args.interim)
@@ -233,18 +208,11 @@ def main(argv: list[str] | None = None) -> None:
     effort_table, effort_meta, m1, effort_projects = effort_results(frame, text)
     risk_table, risk_meta, m2, risk_projects = risk_results(frame, text)
 
-    args.models.mkdir(parents=True, exist_ok=True)
-    m1.booster_.save_model(args.models / "m1.txt")
-    m2.booster_.save_model(args.models / "m2.txt")
-    meta = {"encoder": encoders.SbertEncoder.model_id, "learner": "LightGBM", "params": LGBM,
-            "effort": effort_meta, "risk": risk_meta, "split": frame["split"].value_counts().to_dict(),
-            "features": catalog.names(), "categorical": CATEGORICAL}
-    (args.models / "meta.json").write_text(json.dumps(meta, indent=2, default=str), encoding="utf-8")
     args.report.write_text(build_report(frame, effort_table, risk_table, importance(m1),
                                         importance(m2), effort_projects, risk_projects,
                                         {"risk": risk_meta, "effort_p": effort_meta["p_vs_median"],
                                          "auc": risk_meta["auc_vs_heuristic"]}), encoding="utf-8")
-    print(f"Wrote {args.report} and the models to {args.models}")
+    print(f"Wrote {args.report}")
 
 
 if __name__ == "__main__":

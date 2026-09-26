@@ -20,6 +20,9 @@ WORK_DIR = DATA_DIR / "effort-risk"
 TAWOS_PARQUET_DIR = WORK_DIR / "tawos-raw"  # one Parquet file per TAWOS table, unmodified
 INTERIM_DIR = WORK_DIR / "interim"  # derived tables (sprint timelines, snapshots) that later steps read
 
+# Trained models are code-sized (LightGBM text files and JSON) and are committed with the code that made them.
+MODEL_BUNDLES_DIR = REPO_ROOT / "ml-engine" / "models"
+
 
 def tawos_mysql_settings() -> dict:
     """Connection settings for the local tawos-mysql container (see docker-compose.yml)."""

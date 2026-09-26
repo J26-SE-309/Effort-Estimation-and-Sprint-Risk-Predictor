@@ -94,8 +94,7 @@ AgilePlatform/
 │       ├── tawos-raw/           # every TAWOS table as Parquet, plus _manifest.json
 │       ├── interim/             # derived tables: sprint timelines, snapshot, labels, features
 │       ├── review/              # the 200-story label-check workbooks (not in git)
-│       ├── embeddings/          # cached SBERT embeddings, keyed by a hash of the story text
-│       └── models/              # downloaded encoders and trained models
+│       └── embeddings/          # cached SBERT embeddings, keyed by a hash of the story text
 └── Effort-Estimation-and-Sprint-Risk-Predictor/   # this repository
 ```
 
@@ -153,9 +152,10 @@ AgilePlatform/
    .venv\Scripts\erp-build-features
    ```
 
-9. Train the first models (ML guide Phase 2): baselines, then SBERT + LightGBM for effort (M1) and risk (M2)
-   on a time-ordered split. The first run downloads the SBERT model (about 90 MB) into
-   `Datasets/effort-risk/models/` and caches every story's embedding in `Datasets/effort-risk/embeddings/`:
+9. Compare the first models with the baselines (ML guide Phase 2): SBERT + LightGBM for effort (M1) and
+   risk (M2) on a time-ordered split, with text-only and features-only versions. The first run downloads the
+   SBERT model (about 90 MB, pinned to one revision) into the standard Hugging Face cache of your machine and
+   caches every story's embedding in `Datasets/effort-risk/embeddings/`:
 
    ```powershell
    .venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -163,13 +163,23 @@ AgilePlatform/
    .venv\Scripts\erp-train-first
    ```
 
+10. Train the deployable bundle (Phase 3): M1 and M2 with the risk calibrator (C1), effort intervals (C2) and
+    SHAP explanations (X1). It is saved to [`ml-engine/models/sbert-lightgbm-v1/`](ml-engine/models/) and
+    committed: `m1.txt` and `m2.txt` are the LightGBM models, `bundle.json` holds everything else (encoder
+    and revision, input columns, calibrator, interval quantiles, threshold, test metrics, code commit):
+
+    ```powershell
+    .venv\Scripts\erp-train-bundle
+    ```
+
 Each step writes a report to [`ml-engine/reports/`](ml-engine/reports/):
 [`tawos-profile.md`](ml-engine/reports/tawos-profile.md) (what TAWOS contains),
 [`sprint-timeline.md`](ml-engine/reports/sprint-timeline.md) (sprint histories, the clock check behind their
 tolerance, worked examples), [`snapshot.md`](ml-engine/reports/snapshot.md) (the filtering log and the
 training rows), [`labels.md`](ml-engine/reports/labels.md) (how often each warning sign fires) and
-[`features.md`](ml-engine/reports/features.md) (every feature, its meaning and why it was known at commitment) and
-[`first-models.md`](ml-engine/reports/first-models.md) (baselines and the first M1 and M2 results).
+[`features.md`](ml-engine/reports/features.md) (every feature, its meaning and why it was known at commitment),
+[`first-models.md`](ml-engine/reports/first-models.md) (baselines and the first M1 and M2 results) and
+[`uncertainty-and-explanations.md`](ml-engine/reports/uncertainty-and-explanations.md) (calibration, interval coverage and explanations of the bundle).
 
 ## Synapse Platform Services
 

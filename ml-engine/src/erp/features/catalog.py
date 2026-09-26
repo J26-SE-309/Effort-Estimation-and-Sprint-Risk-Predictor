@@ -8,12 +8,32 @@ batch scores without renaming anything; the H2 ablation drops a whole group at a
 from dataclasses import dataclass
 
 
+# The planning factors shown to users as reasons (proposal Appendix A; ML guide Appendix A). Explanations
+# add up the contributions of all features of one factor, including the 384 SBERT values of the story text.
+FACTOR_OF_GROUP = {
+    "text": "Story size and content",
+    "requirement_quality": "Requirement ambiguity",
+    "acceptance_criteria": "Acceptance-criteria gaps",
+    "traceability": "Test and traceability gaps",
+    "dependencies": "Dependencies and blockers",
+    "sprint": "Sprint load and timing",
+    "team_history": "Team delivery history",
+    "metadata": "Story metadata",
+}
+FACTOR_OVERRIDES = {"story_points": "Story size and content", "added_mid_sprint": "Sprint load and timing"}
+TEXT_FACTOR = FACTOR_OF_GROUP["text"]
+
+
 @dataclass(frozen=True)
 class Feature:
     name: str
     group: str
     meaning: str
     known_because: str
+
+    @property
+    def factor(self) -> str:
+        return FACTOR_OVERRIDES.get(self.name, FACTOR_OF_GROUP[self.group])
 
 
 FEATURES = [
@@ -99,3 +119,9 @@ UPSTREAM_GROUPS = ("requirement_quality", "acceptance_criteria", "traceability")
 
 def names(group: str | None = None) -> list[str]:
     return [f.name for f in FEATURES if group is None or f.group == group]
+
+
+def factor_of(column: str) -> str:
+    """The planning factor of a model input column; encoder columns (e.g. sbert_17) belong to the story text."""
+    by_name = {f.name: f.factor for f in FEATURES}
+    return by_name.get(column, TEXT_FACTOR)

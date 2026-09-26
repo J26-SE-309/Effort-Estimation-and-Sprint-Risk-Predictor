@@ -1,7 +1,9 @@
 """Text encoders E1-E4 behind one fit() / transform() interface (ML guide 3.2 and 11.4).
 
-Only E3 exists so far. Its embeddings are cached by a hash of the text, so a story that has not changed is
-never encoded twice (as the proposal plans); the cache lives next to the data, outside the repository.
+Only E3 exists so far. Its embeddings of the TAWOS stories are data, so they are cached in the Datasets
+folder, keyed by a hash of the text: a story that has not changed is never encoded twice (as the proposal
+plans). The downloaded SBERT weights are not ours and are not data: they live in the standard Hugging Face
+cache of the machine, pinned to one exact revision so every run uses the same model.
 """
 
 import hashlib
@@ -13,7 +15,6 @@ import pandas as pd
 from erp import config
 
 EMBEDDINGS_DIR = config.WORK_DIR / "embeddings"
-MODELS_DIR = config.WORK_DIR / "models" / "hf-cache"
 
 
 def story_text(stories: pd.DataFrame) -> pd.Series:
@@ -30,7 +31,9 @@ class SbertEncoder:
 
     name = "sbert"
     model_id = "sentence-transformers/all-MiniLM-L6-v2"
+    revision = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"  # the Hugging Face commit of the weights we use
     dimensions = 384
+    text = "title + '. ' + description_text (code removed), truncated to 256 word pieces"
 
     def __init__(self, store: Path | None = None, model=None, batch_size: int = 64):
         self.store = store or EMBEDDINGS_DIR / "sbert-all-MiniLM-L6-v2.npz"
@@ -44,7 +47,7 @@ class SbertEncoder:
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self.model_id, cache_folder=str(MODELS_DIR), device="cpu")
+            self._model = SentenceTransformer(self.model_id, revision=self.revision, device="cpu")
         return self._model
 
     def _cached(self) -> dict[str, np.ndarray]:

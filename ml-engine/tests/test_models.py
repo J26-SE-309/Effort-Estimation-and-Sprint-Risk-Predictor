@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from erp.models import encoders, first_models, metrics, split
+from erp.features import catalog
+from erp.models import encoders, inputs, metrics, split
 
 T = pd.Timestamp
 
@@ -59,6 +60,6 @@ def test_sbert_encoder_caches_by_text(tmp_path):
 
 
 def test_effort_model_never_sees_story_points():
-    frame = pd.DataFrame({name: [0] for name in first_models.catalog.names()})
-    assert "story_points" not in first_models.structured(frame, "effort").columns
-    assert "story_points" in first_models.structured(frame, "risk").columns
+    frame = pd.DataFrame({name: [0] for name in catalog.names()})
+    assert "story_points" not in inputs.structured(frame, "effort").columns
+    assert "story_points" in inputs.structured(frame, "risk").columns

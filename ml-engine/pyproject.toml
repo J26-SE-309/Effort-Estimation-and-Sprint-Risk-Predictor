@@ -33,6 +33,7 @@ erp-build-labels = "erp.labels.build_labels:main"
 erp-review-sample = "erp.labels.review:main"
 erp-build-features = "erp.features.build_features:main"
 erp-train-first = "erp.models.first_models:main"
+erp-train-bundle = "erp.models.train_bundle:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]
