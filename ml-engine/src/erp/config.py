@@ -1,8 +1,9 @@
 """Paths and connection settings shared by the pipeline.
 
-Data never lives in the repository. Datasets, extracted tables and trained
-models go under ERP_DATA_DIR, which defaults to the Datasets folder next to
-the repositories (AgilePlatform/Datasets).
+Data never lives in the repository: datasets, extracted tables, cached
+embeddings and predictions go under ERP_DATA_DIR, which defaults to the
+Datasets folder next to the repositories (AgilePlatform/Datasets). Trained
+models are code-sized and are committed under ml-engine/models/.
 """
 
 import os

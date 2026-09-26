@@ -50,6 +50,9 @@ jobs:
           cache: pip
           cache-dependency-path: ml-engine/pyproject.toml
       - name: Install
-        run: pip install -e ".[dev]"
+        # CPU build of torch first (for M3), then the arena learners, so every model's reload test runs here too
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,arena]"
       - name: Test
         run: pytest

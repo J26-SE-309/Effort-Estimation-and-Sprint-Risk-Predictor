@@ -117,3 +117,54 @@ def auc_difference(y_true, scores_a, scores_b, runs: int = 1000, seed: int = 42)
         diffs.append(roc_auc_score(y[idx], a[idx]) - roc_auc_score(y[idx], b[idx]))
     low, high = np.percentile(diffs, [2.5, 97.5])
     return float(roc_auc_score(y, a) - roc_auc_score(y, b)), float(low), float(high)
+
+
+def holm(p_values) -> np.ndarray:
+    """Holm-Bonferroni adjusted p-values, for comparing many configurations at once (ML guide 9 and 10.1)."""
+    p = np.asarray(p_values, float)
+    order = np.argsort(p)
+    adjusted = np.empty_like(p)
+    running = 0.0
+    for rank, i in enumerate(order):
+        running = max(running, (len(p) - rank) * p[i])
+        adjusted[i] = min(running, 1.0)
+    return adjusted
+
+
+def vargha_delaney(a, b) -> float:
+    """Vargha-Delaney A12: the chance that a value from a is larger than one from b (ties count half).
+
+    0.5 means no difference; for errors, A12 below 0.5 means a tends to have the smaller errors.
+    Conventional thresholds: 0.56 small, 0.64 medium, 0.71 large (and mirrored below 0.5).
+    """
+    from scipy.stats import rankdata
+
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    ranks = rankdata(np.concatenate([a, b]))
+    return float((ranks[: len(a)].sum() - len(a) * (len(a) + 1) / 2) / (len(a) * len(b)))
+
+
+def effect_size_label(a12: float) -> str:
+    distance = abs(a12 - 0.5)
+    return "negligible" if distance < 0.06 else "small" if distance < 0.14 else "medium" if distance < 0.21 \
+        else "large"
+
+
+def paired_bootstrap(metric, y_true, scores_a, scores_b, runs: int = 1000, seed: int = 42) -> dict:
+    """metric(a) - metric(b) on the same stories, with a 95% interval and a two-sided bootstrap p-value.
+
+    metric(y_true, scores) -> float. Resamples stories (with replacement), keeping each story's pair together.
+    """
+    y, a, b = np.asarray(y_true), np.asarray(scores_a, float), np.asarray(scores_b, float)
+    rng = np.random.default_rng(seed)
+    diffs = []
+    for _ in range(runs):
+        idx = rng.integers(0, len(y), len(y))
+        if len(np.unique(y[idx])) < 2 and y.dtype == bool:
+            continue
+        diffs.append(metric(y[idx], a[idx]) - metric(y[idx], b[idx]))
+    diffs = np.asarray(diffs)
+    low, high = np.percentile(diffs, [2.5, 97.5])
+    p = min(1.0, 2 * min((diffs <= 0).mean(), (diffs >= 0).mean()))
+    return {"difference": float(metric(y, a) - metric(y, b)), "low": float(low), "high": float(high),
+            "p": float(max(p, 1 / len(diffs)))}

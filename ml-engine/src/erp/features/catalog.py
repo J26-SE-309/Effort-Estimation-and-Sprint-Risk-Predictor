@@ -122,6 +122,10 @@ def names(group: str | None = None) -> list[str]:
 
 
 def factor_of(column: str) -> str:
-    """The planning factor of a model input column; encoder columns (e.g. sbert_17) belong to the story text."""
+    """The planning factor of a model input column; encoder columns (e.g. sbert_17) belong to the story text.
+
+    One-hot and 'was missing' columns (project_key=MESOS, reopen_rate__missing) belong to their feature.
+    """
     by_name = {f.name: f.factor for f in FEATURES}
-    return by_name.get(column, TEXT_FACTOR)
+    base = column.split("=", 1)[0].removesuffix("__missing")
+    return by_name.get(base, TEXT_FACTOR)

@@ -27,14 +27,17 @@ INTERVAL_COVERAGES = (0.8, 0.9)
 
 
 def code_version() -> dict:
-    """The commit the bundle was trained with, and whether the working tree had uncommitted changes."""
+    """The commit the model was trained with, and whether tracked code under ml-engine/src had uncommitted changes.
+
+    New files that nothing imports yet (work in progress next to a running training job) do not count.
+    """
     def git(*args: str) -> str:
         try:
             return subprocess.run(["git", *args], cwd=config.REPO_ROOT, capture_output=True, text=True,
                                   check=True).stdout.strip()
         except (OSError, subprocess.CalledProcessError):
             return ""
-    changed = bool(git("status", "--porcelain", "ml-engine/src"))
+    changed = bool(git("status", "--porcelain", "--untracked-files=no", "ml-engine/src"))
     return {"commit": git("rev-parse", "HEAD"), "uncommitted_changes": changed}
 
 

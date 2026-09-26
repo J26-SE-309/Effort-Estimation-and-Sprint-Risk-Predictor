@@ -23,6 +23,9 @@ dev = ["pytest>=8"]
 # Text encoders that download pre-trained models (E3 SBERT; later E4). Install the CPU build of torch first:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 encoders = ["sentence-transformers>=3", "torch>=2.4"]
+# The Phase 4 arena: more learners and E2, tuning, experiment tracking, safe model formats. The multi-task
+# network (M3) also needs torch from the encoders extra.
+arena = ["xgboost>=3", "catboost>=1.2", "gensim>=4.4", "optuna>=4", "mlflow>=3", "skops>=0.10", "safetensors>=0.4"]
 
 [project.scripts]
 erp-export-tawos = "erp.extract.tawos_to_parquet:main"
@@ -34,6 +37,7 @@ erp-review-sample = "erp.labels.review:main"
 erp-build-features = "erp.features.build_features:main"
 erp-train-first = "erp.models.first_models:main"
 erp-train-bundle = "erp.models.train_bundle:main"
+erp-train-arena = "erp.arena.train:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]
