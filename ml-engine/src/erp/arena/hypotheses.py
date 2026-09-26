@@ -17,6 +17,7 @@ H2 - do the requirement-quality and traceability signals add information? The be
 Usage:
     erp-run-hypotheses              # after erp-arena-report; writes ml-engine/reports/hypotheses.md
     erp-run-hypotheses --only h1    # or h2
+    erp-run-hypotheses --report-only  # rebuild the report from the saved results
 """
 
 import argparse
@@ -309,8 +310,9 @@ def build_report(one: dict | None, two: dict | None) -> str:
         lines += ["How often the upstream proxies are non-zero at all (all stories):", "",
                   md_table(pd.DataFrame({"Feature": list(prevalence), "Non-zero": [f"{v:.1%}" for v in
                                                                                    prevalence.values()]})), "",
-                  "A feature that is almost always zero cannot carry much signal: only about 1.4% of TAWOS stories "
-                  "have acceptance criteria, so the Component 2 ablation says little about acceptance criteria "
+                  "A feature that is almost always zero cannot carry much signal: only "
+                  f"{prevalence['has_acceptance_criteria']:.1%} of the stories have acceptance criteria, so the "
+                  "Component 2 ablation says little about acceptance criteria "
                   "themselves (the open question for the supervisor). A negative or null result here is a finding "
                   "about proxies computed from open-source issue text, not about Components 1–3; it is rerun on "
                   "their real batch scores when they are available (ML guide 6.6).", ""]
@@ -323,17 +325,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--trials", type=int, default=configs.N_TRIALS)
     parser.add_argument("--retune", action="store_true", help="tune the H1 single-task networks again")
     parser.add_argument("--report", type=Path, default=REPORT)
+    parser.add_argument("--report-only", action="store_true", help="rebuild the report from the saved results")
     args = parser.parse_args(argv)
-
-    arena = ArenaData.load()
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     def load(name):
         path = OUT_DIR / f"{name}.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
-    one = h1(arena, args.trials, args.retune) if args.only in (None, "h1") else load("h1")
-    two = h2(arena) if args.only in (None, "h2") else load("h2")
+    if args.report_only:
+        one, two = load("h1"), load("h2")
+    else:
+        arena = ArenaData.load()
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        one = h1(arena, args.trials, args.retune) if args.only in (None, "h1") else load("h1")
+        two = h2(arena) if args.only in (None, "h2") else load("h2")
     args.report.write_text(build_report(one, two), encoding="utf-8")
     train.log(f"Wrote {args.report}")
 
