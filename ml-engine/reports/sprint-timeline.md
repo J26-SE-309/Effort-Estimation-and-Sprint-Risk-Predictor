@@ -42,14 +42,15 @@ Story candidates: **54,166**.
 
 |  | Stories | Share |
 |---|---|---|
-| Yes: first commitment found, and that sprint was closed | 27,343 | 50.5% |
+| Yes: first commitment found, and that sprint was closed | 25,796 | 47.6% |
 | Never in any sprint | 17,847 | 32.9% |
 | Its sprints are not in the Sprint table (no dates) | 6,596 | 12.2% |
 | Joined an undated sprint before its first known commitment | 833 | 1.5% |
 | Never really committed (re-planned, in and out within a day, added at close) | 1,407 | 2.6% |
 | First sprint was still open when TAWOS was collected | 140 | 0.3% |
+| First sprint's dates unreliable (placeholder dates, or closed long after its planned end) | 1,547 | 2.9% |
 
-**27,343 stories** have a usable first commitment. These are the rows the snapshot and the labels are built on.
+**25,796 stories** have a usable first commitment. These are the rows the snapshot and the labels are built on.
 
 ## 4. What happened around the first commitment (usable stories)
 
@@ -57,26 +58,26 @@ How it entered its first sprint:
 
 |  | Stories | Share |
 |---|---|---|
-| Planned (in the sprint at its start) | 12,623 | 46.2% |
-| Added after the start | 14,720 | 53.8% |
+| Planned (in the sprint at its start) | 12,236 | 47.4% |
+| Added after the start | 13,560 | 52.6% |
 
 How it left its first sprint:
 
 |  | Stories | Share |
 |---|---|---|
-| Stayed (finished there, or kept the closed sprint in its field) | 23,414 | 85.6% |
-| Moved on when the sprint closed | 1,512 | 5.5% |
-| Removed while the sprint was running | 2,180 | 8.0% |
-| Removed later from the closed sprint | 237 | 0.9% |
+| Stayed (finished there, or kept the closed sprint in its field) | 22,131 | 85.8% |
+| Moved on when the sprint closed | 1,468 | 5.7% |
+| Removed while the sprint was running | 2,002 | 7.8% |
+| Removed later from the closed sprint | 195 | 0.8% |
 
 Number of sprints it was committed to:
 
 |  | Stories | Share |
 |---|---|---|
-| 1 | 17,599 | 64.4% |
-| 2 | 5,317 | 19.4% |
-| 3 | 1,937 | 7.1% |
-| 4 or more | 2,490 | 9.1% |
+| 1 | 16,499 | 64.0% |
+| 2 | 5,074 | 19.7% |
+| 3 | 1,858 | 7.2% |
+| 4 or more | 2,365 | 9.2% |
 
 Being in more than one sprint is the raw signal for carry-over (R5). Whether the story was actually unfinished at the end of its first sprint (R1, R2) is decided in the labels step, using the resolution date and the status history.
 
@@ -84,50 +85,50 @@ Being in more than one sprint is the raw signal for carry-over (R5). Whether the
 
 | Tolerance | Usable stories | Planned | Added after start | In 2+ sprints |
 |---|---|---|---|---|
-| 0 h | 27,501 | 36.5% | 63.5% | 35.8% |
-| 12 h | 27,343 | 46.2% | 53.8% | 35.6% |
-| 24 h | 27,192 | 49.6% | 50.4% | 35.5% |
+| 0 h | 25,949 | 37.9% | 62.1% | 36.2% |
+| 12 h | 25,796 | 47.4% | 52.6% | 36.0% |
+| 24 h | 25,656 | 50.8% | 49.2% | 35.9% |
 
 ## 6. Per project
 
 | Project | Candidates | Usable | Planned | In 2+ sprints | Moved on at close | ≥ 100 usable |
 |---|---|---|---|---|---|---|
-| DM | 16,180 | 7,382 | 40% | 43% | 2% | yes |
-| TIMOB | 4,324 | 3,424 | 34% | 42% | 15% | yes |
-| MESOS | 3,120 | 2,483 | 35% | 43% | 2% | yes |
+| DM | 16,180 | 6,830 | 42% | 44% | 2% | yes |
+| TIMOB | 4,324 | 3,382 | 33% | 42% | 15% | yes |
+| MESOS | 3,120 | 2,347 | 36% | 42% | 3% | yes |
 | XD | 3,421 | 2,203 | 50% | 19% | 9% | yes |
-| MULE | 2,798 | 2,049 | 51% | 19% | 1% | yes |
-| TISTUD | 3,063 | 1,367 | 59% | 29% | 14% | yes |
-| MDL | 1,384 | 1,244 | 46% | 28% | 7% | yes |
-| TIDOC | 1,234 | 1,005 | 63% | 31% | 6% | yes |
+| MULE | 2,798 | 2,038 | 51% | 19% | 1% | yes |
+| TISTUD | 3,063 | 1,225 | 58% | 30% | 16% | yes |
+| TIDOC | 1,234 | 1,001 | 63% | 31% | 6% | yes |
 | STL | 950 | 843 | 70% | 31% | 0% | yes |
+| MDL | 1,384 | 833 | 54% | 32% | 9% | yes |
 | IS | 695 | 600 | 59% | 37% | 3% | yes |
-| NEXUS | 1,486 | 558 | 46% | 29% | 0% | yes |
+| NEXUS | 1,486 | 546 | 47% | 29% | 0% | yes |
 | INDY | 675 | 523 | 69% | 36% | 0% | yes |
-| CONFSERVER | 593 | 465 | 60% | 51% | 2% | yes |
-| COMPASS | 498 | 389 | 63% | 48% | 1% | yes |
-| APIKIT | 410 | 339 | 59% | 34% | 4% | yes |
+| CONFSERVER | 593 | 450 | 61% | 51% | 2% | yes |
+| COMPASS | 498 | 375 | 63% | 46% | 1% | yes |
 | BE | 351 | 333 | 58% | 27% | 12% | yes |
-| USERGRID | 478 | 307 | 62% | 42% | 3% | yes |
-| CLI | 356 | 299 | 37% | 37% | 20% | yes |
-| ALOY | 299 | 251 | 36% | 32% | 11% | yes |
+| APIKIT | 410 | 331 | 59% | 33% | 4% | yes |
+| CLI | 356 | 288 | 35% | 37% | 20% | yes |
+| USERGRID | 478 | 272 | 64% | 45% | 3% | yes |
+| ALOY | 299 | 245 | 37% | 33% | 11% | yes |
 | DAEMON | 240 | 212 | 10% | 28% | 6% | yes |
-| FAB | 394 | 152 | 37% | 53% | 4% | yes |
-| CONFCLOUD | 294 | 105 | 74% | 50% | 1% | yes |
+| FAB | 394 | 126 | 40% | 58% | 5% | yes |
 | CXX | 194 | 104 | 74% | 45% | 1% | yes |
-| JRASERVER | 117 | 90 | 72% | 43% | 2% |  |
-| DATACASS | 209 | 88 | 30% | 11% | 1% |  |
-| FE | 113 | 78 | 65% | 21% | 0% |  |
-| JAVA | 228 | 77 | 53% | 35% | 3% |  |
-| CLOV | 136 | 73 | 58% | 27% | 1% |  |
-| MXNET | 130 | 67 | 84% | 40% | 0% |  |
+| CONFCLOUD | 294 | 99 | 78% | 48% | 1% |  |
+| JRASERVER | 117 | 84 | 71% | 46% | 2% |  |
+| FE | 113 | 76 | 64% | 20% | 0% |  |
+| JAVA | 228 | 74 | 55% | 35% | 3% |  |
 | CWD | 86 | 67 | 54% | 34% | 0% |  |
-| JRACLOUD | 83 | 56 | 75% | 20% | 2% |  |
-| DURACLOUD | 657 | 50 | 48% | 0% | 0% |  |
+| MXNET | 130 | 64 | 83% | 41% | 0% |  |
+| CLOV | 136 | 57 | 63% | 35% | 2% |  |
+| JRACLOUD | 83 | 49 | 80% | 20% | 2% |  |
+| DATACASS | 209 | 41 | 39% | 10% | 0% |  |
 | EVG | 4,814 | 41 | 66% | 0% | 0% |  |
+| DURACLOUD | 657 | 19 | 84% | 0% | 0% |  |
 | APSTUD | 777 | 10 | 70% | 0% | 20% |  |
 | JSWSERVER | 24 | 6 | 50% | 0% | 0% |  |
-| JSWCLOUD | 5 | 3 | 67% | 33% | 0% |  |
+| JSWCLOUD | 5 | 2 | 100% | 0% | 0% |  |
 | BAM | 171 | 0 | 0% | 0% | 0% |  |
 | SERVER | 736 | 0 | 0% | 0% | 0% |  |
 | DNN | 2,443 | 0 | 0% | 0% | 0% |  |

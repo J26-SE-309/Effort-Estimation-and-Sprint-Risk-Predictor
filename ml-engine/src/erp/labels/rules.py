@@ -9,10 +9,13 @@ import re
 import numpy as np
 import pandas as pd
 
+from erp.snapshot import history
+
 # R4: blocked for more than this share of the sprint (ML guide 6.3: "more than 30% of the sprint").
 BLOCKED_SHARE = 0.30
 # Link phrases, as the Change_Log writes them, that mean "another issue has to be finished first".
-BLOCKING_LINK = re.compile(r"^This issue (?:is blocked by|depends on) ([A-Z][A-Z0-9_]*-\d+)$")
+DEPENDS_ON = ("is blocked by", "depends on", "has to be done after")
+BLOCKING_LINK = re.compile(r"^This issue (?:" + "|".join(DEPENDS_ON) + r") ([A-Z][A-Z0-9_]*-\d+)$", re.I)
 
 
 def first_event_after(events: pd.DataFrame, after: pd.Series) -> pd.Series:
@@ -23,29 +26,15 @@ def first_event_after(events: pd.DataFrame, after: pd.Series) -> pd.Series:
 
 
 def blocking_links(link_changes: pd.DataFrame, issue_ids: pd.Series) -> pd.DataFrame:
-    """When each "is blocked by" / "depends on" link existed: one row per link and period.
+    """When each dependency link ('is blocked by', 'depends on', 'has to be done after') existed.
 
-    link_changes holds Change_Log rows for Field == 'Link' (ID, Issue_ID, From_String, To_String,
-    Creation_Date); adding a link writes 'This issue is blocked by ABC-12' to To_String, removing it writes
-    it to From_String. issue_ids maps issue keys to TAWOS issue IDs; blockers outside TAWOS get NA.
+    One row per link and period: Issue_ID, blocker_key, added_at, removed_at (NaT while it exists) and
+    Blocker_ID (NA for blockers outside TAWOS). See history.link_periods.
     """
-    rows = []
-    log = link_changes.sort_values(["Issue_ID", "Creation_Date", "ID"])
-    for issue_id, changes in log.groupby("Issue_ID", sort=False):
-        open_links: dict[str, pd.Timestamp] = {}
-        for when, old, new in zip(changes["Creation_Date"], changes["From_String"], changes["To_String"],
-                                  strict=True):
-            removed = BLOCKING_LINK.match(old) if isinstance(old, str) else None
-            added = BLOCKING_LINK.match(new) if isinstance(new, str) else None
-            if removed and removed.group(1) in open_links:
-                rows.append((issue_id, removed.group(1), open_links.pop(removed.group(1)), when))
-            if added and added.group(1) not in open_links:
-                open_links[added.group(1)] = when
-        rows += [(issue_id, key, since, pd.NaT) for key, since in open_links.items()]
-    links = pd.DataFrame(rows, columns=["Issue_ID", "blocker_key", "added_at", "removed_at"])
-    links["removed_at"] = pd.to_datetime(links["removed_at"])
-    links["Blocker_ID"] = links["blocker_key"].map(issue_ids).astype("Int64")
-    return links
+    links = history.link_periods(link_changes, issue_ids)
+    links = links[links["phrase"].isin(DEPENDS_ON)].reset_index(drop=True)
+    return links.rename(columns={"target_key": "blocker_key", "Target_ID": "Blocker_ID"})[
+        ["Issue_ID", "blocker_key", "added_at", "removed_at", "Blocker_ID"]]
 
 
 def open_periods(resolution_changes: pd.DataFrame, created: pd.Series) -> pd.DataFrame:

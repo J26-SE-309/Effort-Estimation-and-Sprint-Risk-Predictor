@@ -144,3 +144,14 @@ def test_first_commitment_status():
                                        5: "sprint_unknown", 6: "sprint_still_open"}
     assert out.loc[1, ["Sprint_Name", "n_sprints_committed"]].tolist() == ["A", 2]
     assert out.loc[4, "Project_ID"] == 1
+
+
+def test_dates_reliable_rejects_placeholders_and_forgotten_sprints():
+    sprints = pd.DataFrame({
+        "Start_Date": [T("2020-01-01"), T("1970-01-01"), T("2013-04-08"), T("2020-01-01"), T("2020-01-01")],
+        "End_Date": [T("2020-01-15"), T("1970-01-01"), T("2013-04-22"), T("2020-01-15"), T("2020-01-15")],
+        "Complete_Date": [T("2020-01-20"), T("1970-01-01"), T("2016-11-07"), T("2020-01-30"), T("2019-12-31")],
+    })
+    # on time-ish (5 days late); placeholder; closed three years late; 15 days late with a two-week plan;
+    # closed before it started
+    assert timeline.dates_reliable(sprints).tolist() == [True, False, False, False, False]

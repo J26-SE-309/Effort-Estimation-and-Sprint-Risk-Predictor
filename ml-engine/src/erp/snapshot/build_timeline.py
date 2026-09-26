@@ -207,6 +207,8 @@ def build_report(stays, memberships, commitments, issues, projects, sprints, sen
             "earlier_sprint_unknown": "Joined an undated sprint before its first known commitment",
             "never_committed": "Never really committed (re-planned, in and out within a day, added at close)",
             "sprint_still_open": "First sprint was still open when TAWOS was collected",
+            "sprint_dates_unreliable": "First sprint's dates unreliable (placeholder dates, or closed long after "
+                                       "its planned end)",
         }), "",
         f"**{len(ok):,} stories** have a usable first commitment. These are the rows the snapshot and the "
         "labels are built on.", "",

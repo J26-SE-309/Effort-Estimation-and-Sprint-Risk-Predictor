@@ -23,6 +23,11 @@ CLOCK_TOLERANCE = pd.Timedelta(hours=12)
 # A stay shorter than this that ends while the sprint is still running is a correction, not a commitment
 # (e.g. added to the wrong sprint and moved out again 20 minutes later).
 MIN_STAY = pd.Timedelta(days=1)
+# Sprint dates that cannot say when work was due: placeholders (1970, a year typed as 0015), or a sprint
+# closed more than one planned length (at least two weeks) after its planned end, i.e. a forgotten sprint
+# (one 2013 two-week sprint was closed in 2016). Stories first committed to such a sprint are not used.
+MIN_SPRINT_YEAR = 2000
+MIN_LATE_CLOSE = pd.Timedelta(days=14)
 
 STAY_COLUMNS = ["Issue_ID", "JiraID", "joined_at", "left_at", "join_logged"]
 SPRINT_COLUMNS = ["Sprint_ID", "Sprint_Name", "State", "Start_Date", "End_Date", "Complete_Date"]
@@ -159,7 +164,16 @@ def sprint_memberships(stays: pd.DataFrame, tolerance: pd.Timedelta = CLOCK_TOLE
 
     order = m[m["committed"]].sort_values(["Issue_ID", "commitment_time", "Start_Date", "Sprint_ID"])
     m["commit_order"] = order.groupby("Issue_ID").cumcount().add(1).reindex(m.index).astype("Int64")
+    m["dates_reliable"] = dates_reliable(m)
     return m.drop(columns=["first_mid_join"])
+
+
+def dates_reliable(sprints: pd.DataFrame) -> pd.Series:
+    """Whether a sprint's Start/End/Complete dates can say when its work was due (see MIN_SPRINT_YEAR)."""
+    start, end, close = sprints["Start_Date"], sprints["End_Date"], sprints["Complete_Date"]
+    planned = end - start
+    allowed = planned.where(planned > MIN_LATE_CLOSE, MIN_LATE_CLOSE)
+    return (start.dt.year >= MIN_SPRINT_YEAR) & (close >= start) & ~(close - end > allowed)
 
 
 def first_commitments(memberships: pd.DataFrame) -> pd.DataFrame:
@@ -172,12 +186,14 @@ def first_commitments(memberships: pd.DataFrame) -> pd.DataFrame:
       earlier_sprint_unknown it joined a sprint with no dates before its first known commitment, so that
                              unknown sprint may have been the real first commitment
       sprint_still_open      the first sprint had not been closed when TAWOS was collected
+      sprint_dates_unreliable the first sprint's dates are placeholders or it was closed long after its planned
+                             end (dates_reliable), so they cannot say whether the story was on time
     """
     m = memberships
     issues = pd.Index(m["Issue_ID"].unique(), name="Issue_ID")
     committed = m[m["committed"]]
     first = committed[committed["commit_order"] == 1].set_index("Issue_ID")
-    keep = ["JiraID", *SPRINT_COLUMNS, "commitment_time", "entry", "exit"]
+    keep = ["JiraID", *SPRINT_COLUMNS, "commitment_time", "entry", "exit", "dates_reliable"]
     out = first[keep].reindex(issues)
     out.insert(0, "Project_ID", m.groupby("Issue_ID")["Project_ID"].first().reindex(issues))
     out["n_sprints_committed"] = committed.groupby("Issue_ID").size().reindex(issues, fill_value=0)
@@ -186,8 +202,10 @@ def first_commitments(memberships: pd.DataFrame) -> pd.DataFrame:
     unknown_joined = m[m["Sprint_ID"].isna()].groupby("Issue_ID")["first_joined"].min().reindex(issues)
     earlier_unknown = unknown_joined < out["commitment_time"]
     out["status"] = np.select(
-        [resolved == 0, out["n_sprints_committed"] == 0, earlier_unknown, out["Complete_Date"].isna()],
-        ["sprint_unknown", "never_committed", "earlier_sprint_unknown", "sprint_still_open"],
+        [resolved == 0, out["n_sprints_committed"] == 0, earlier_unknown, out["Complete_Date"].isna(),
+         ~out["dates_reliable"].fillna(False).astype(bool)],
+        ["sprint_unknown", "never_committed", "earlier_sprint_unknown", "sprint_still_open",
+         "sprint_dates_unreliable"],
         default="ok",
     )
     return out

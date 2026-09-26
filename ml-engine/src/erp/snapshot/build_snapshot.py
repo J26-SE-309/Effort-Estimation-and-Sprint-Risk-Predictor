@@ -75,7 +75,7 @@ def build(commitments: pd.DataFrame) -> tuple[pd.DataFrame, filters.FilterLog, p
     log = filters.FilterLog(issues.join(commitments), "All issues in TAWOS")
     log.keep(log.frame["commitment_status"].notna(), "Was in at least one sprint")
     frame = log.keep(log.frame["commitment_status"] == "ok",
-                     "First sprint commitment found (that sprint has dates and was closed)")
+                     "First sprint commitment found (that sprint has reliable dates and was closed)")
     frame = frame.assign(snapshot_time=snapshot_times(frame))
 
     at = {name: field_at(field, column, frame, issues, COMMIT_GRACE if name in GRACE_FIELDS else NO_GRACE)

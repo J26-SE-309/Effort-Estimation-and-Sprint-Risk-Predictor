@@ -234,7 +234,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out-dir", type=Path, default=config.WORK_DIR / "review")
     parser.add_argument("--size", type=int, default=200)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--force", action="store_true", help="overwrite workbooks that were already handed out")
     args = parser.parse_args(argv)
+    existing = sorted(args.out_dir.glob("label-review-*.xlsx"))
+    if existing and not args.force:
+        raise SystemExit(f"{existing[0].parent} already holds review workbooks, maybe with answers in them. "
+                         "Use --force to draw a new sample and overwrite them.")
 
     labels = pd.read_parquet(config.INTERIM_DIR / "labels.parquet")
     snapshot = pd.read_parquet(config.INTERIM_DIR / "snapshot.parquet")

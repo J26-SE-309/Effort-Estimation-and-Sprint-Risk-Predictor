@@ -26,6 +26,7 @@ erp-build-timeline = "erp.snapshot.build_timeline:main"
 erp-build-snapshot = "erp.snapshot.build_snapshot:main"
 erp-build-labels = "erp.labels.build_labels:main"
 erp-review-sample = "erp.labels.review:main"
+erp-build-features = "erp.features.build_features:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -103,3 +104,24 @@ def test_projects_using_sprints():
     # project 1: both estimated non-epic issues committed, but only 3 sprints; project 2: 1 of 4 committed
     assert out.loc[1, "share"] == 1.0 and out.loc[2, "share"] == 0.25
     assert not out["uses_sprints"].any()
+
+
+def test_values_at_matches_value_at_for_many_moments():
+    rng = np.random.default_rng(3)
+    rows = []
+    for issue in range(1, 30):
+        value = None
+        for _ in range(rng.integers(0, 5)):
+            new = str(rng.integers(1, 9)) if rng.random() > 0.2 else None
+            rows.append({"ID": len(rows) + 1, "Issue_ID": issue, "From_String": value, "To_String": new,
+                         "Creation_Date": T("2020-01-01") + pd.Timedelta(days=int(rng.integers(0, 60)))})
+            value = new
+    changes = pd.DataFrame(rows)
+    current = pd.Series({i: str(i) for i in range(1, 30)})
+    moments = [T("2020-01-01") + pd.Timedelta(days=d) for d in (0, 10, 25, 59, 70)]
+    pairs = pd.DataFrame([(i, m) for i in range(1, 30) for m in moments], columns=["Issue_ID", "at"])
+    many = history.values_at(changes, pairs, current)
+    for m in moments:
+        one = history.value_at(changes, pd.Series({i: m for i in range(1, 30)}), current)["value"]
+        got = many[pairs["at"] == m].set_axis(range(1, 30))
+        assert [None if pd.isna(v) else v for v in got] == [None if pd.isna(v) else v for v in one]
