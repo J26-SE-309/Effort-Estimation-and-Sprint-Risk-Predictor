@@ -44,10 +44,12 @@ def load_commitments(path: Path) -> pd.DataFrame:
     return commitments.rename(columns={"status": "commitment_status", "Project_ID": "commitment_project"})
 
 
-# An estimate entered within this long after the snapshot time was part of committing the story (it is
-# added to the sprint, then pointed a few minutes later); later estimates count as missing at commitment.
-ESTIMATE_GRACE = pd.Timedelta(hours=1)
+# What happens within this long after the snapshot time is part of the act of committing the story:
+# an estimate typed in a few minutes after the story was added counts as its estimate at commitment, and a
+# story resolved within the hour was sprint bookkeeping (added to record finished work), not a commitment.
+COMMIT_GRACE = pd.Timedelta(hours=1)
 NO_GRACE = pd.Timedelta(0)
+GRACE_FIELDS = ("story_points", "resolution")
 
 
 def snapshot_times(frame: pd.DataFrame) -> pd.Series:
@@ -58,7 +60,7 @@ def snapshot_times(frame: pd.DataFrame) -> pd.Series:
 def field_at(field: str, column: str, frame: pd.DataFrame, current: pd.DataFrame,
              grace: pd.Timedelta = NO_GRACE) -> pd.DataFrame:
     ids = frame.index.tolist()
-    changes = tawos.load("Change_Log", ["ID", "Issue_ID", "Creation_Date", "From_String"],
+    changes = tawos.load("Change_Log", ["ID", "Issue_ID", "Creation_Date", "From_String", "To_String"],
                          filters=(pc.field("Field") == field) & pc.field("Issue_ID").isin(ids))
     return history.value_at(changes, frame["snapshot_time"] + grace, current[column])
 
@@ -76,13 +78,14 @@ def build(commitments: pd.DataFrame) -> tuple[pd.DataFrame, filters.FilterLog, p
                      "First sprint commitment found (that sprint has dates and was closed)")
     frame = frame.assign(snapshot_time=snapshot_times(frame))
 
-    at = {name: field_at(field, column, frame, issues, ESTIMATE_GRACE if name == "story_points" else NO_GRACE)
+    at = {name: field_at(field, column, frame, issues, COMMIT_GRACE if name in GRACE_FIELDS else NO_GRACE)
           for name, (field, column) in FIELDS.items()}
     frame = frame.assign(**{f"{name}_at": result["value"] for name, result in at.items()},
                          **{f"later_{name}_changed": result["changed_later"] for name, result in at.items()})
     frame["story_points_at"] = pd.to_numeric(frame["story_points_at"], errors="coerce")
-    frame["title_at"] = [text.clean_text(value, quoted=not later)
-                         for value, later in zip(frame["title_at"], frame["later_title_changed"], strict=True)]
+    # Today's value comes from the Issue table, which is CSV-quoted; values from the log are not.
+    frame["title_at"] = [text.clean_text(value, quoted=not from_log)
+                         for value, from_log in zip(frame["title_at"], at["title"]["from_log"], strict=True)]
     log.frame = frame
 
     log.keep(frame["issue_type_at"].isin(filters.STORY_TYPES),
@@ -93,7 +96,7 @@ def build(commitments: pd.DataFrame) -> tuple[pd.DataFrame, filters.FilterLog, p
              f"Story points when committed between {filters.SP_RANGE[0]} and {filters.SP_RANGE[1]}")
     log.keep(log.frame["title_at"] != "", "Non-empty title")
     resolved = log.frame["resolution_at"].fillna("").astype(str).str.strip() != ""
-    log.keep(~resolved, "Not already resolved when committed")
+    log.keep(~resolved, "Not resolved when committed or within the hour after")
 
     dropped = sprint_use[~sprint_use["uses_sprints"] & sprint_use.index.isin(log.frame["Project_ID"])]
     dropped = dropped.assign(stories=log.frame["Project_ID"].value_counts().reindex(dropped.index))
@@ -105,8 +108,8 @@ def build(commitments: pd.DataFrame) -> tuple[pd.DataFrame, filters.FilterLog, p
     current_description = tawos.load("Issue", ["ID", "Description"],
                                      filters=pc.field("ID").isin(frame.index.tolist())).set_index("ID")
     description = field_at("description", "Description", frame, current_description)
-    raw = [tawos.unquote(value) if not later else value
-           for value, later in zip(description["value"], description["changed_later"], strict=True)]
+    raw = [value if from_log else tawos.unquote(value)
+           for value, from_log in zip(description["value"], description["from_log"], strict=True)]
     frame = frame.assign(description_at=raw, later_description_changed=description["changed_later"])
     frame["description_text"] = frame["description_at"].map(text.clean_text)
 
@@ -162,11 +165,12 @@ def build_report(snapshot: pd.DataFrame, log: filters.FilterLog, dropped: pd.Dat
         "## 1. Filtering log", "",
         md_table(log.table()), "",
         "- *Already estimated when committed*: these stories got their story points more than "
-        f"{ESTIMATE_GRACE.total_seconds() / 3600:g} hour after the snapshot time (an estimate entered within that "
+        f"{COMMIT_GRACE.total_seconds() / 3600:g} hour after the snapshot time (an estimate entered within that "
         "time counts as part of committing the story). They have no effort answer for M1; they could still be "
         "added to the risk model (M2) later, with M1's prediction in place of the missing estimate (ML guide 4.2).",
-        "- *Not already resolved when committed*: the story was already done when it was put in the sprint "
-        "(sprint bookkeeping), so there was no commitment to keep.",
+        "- *Not resolved when committed or within the hour after*: the story was already done, or was closed "
+        "straight after being added, so it was put in the sprint to record finished work (sprint bookkeeping). "
+        "There was no commitment to keep, and counting these would make too many stories look safe.",
         "- *Project really used sprints*: dropped "
         + (", ".join(f"{row.Project_Key} ({row.stories:,} {'story' if row.stories == 1 else 'stories'} left; "
                      f"{row.sprints:.0f} dated sprints, {row.share:.0%} of its estimated issues committed)"

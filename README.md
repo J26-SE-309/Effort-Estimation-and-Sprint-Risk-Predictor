@@ -92,7 +92,8 @@ AgilePlatform/
 │   ├── TAWOS/TAWOS.sql          # TAWOS v1.1 MySQL dump, doi.org/10.5522/04/21308124 (4.1 GB)
 │   └── effort-risk/
 │       ├── tawos-raw/           # every TAWOS table as Parquet, plus _manifest.json
-│       └── interim/             # derived tables: sprint timelines and the snapshot
+│       ├── interim/             # derived tables: sprint timelines, snapshot, labels
+│       └── review/              # the 200-story label-check workbooks (not in git)
 └── Effort-Estimation-and-Sprint-Risk-Predictor/   # this repository
 ```
 
@@ -128,11 +129,24 @@ AgilePlatform/
    .venv\Scripts\erp-build-snapshot
    ```
 
+6. Compute the risk labels R1–R6 for every snapshot story:
+
+   ```powershell
+   .venv\Scripts\erp-build-labels
+   ```
+
+7. Draw the 200 stories for the human label check and write one workbook per reviewer to
+   `Datasets/effort-risk/review/` (the automatic labels stay in a separate key file):
+
+   ```powershell
+   .venv\Scripts\erp-review-sample
+   ```
+
 Each step writes a report to [`ml-engine/reports/`](ml-engine/reports/):
 [`tawos-profile.md`](ml-engine/reports/tawos-profile.md) (what TAWOS contains),
 [`sprint-timeline.md`](ml-engine/reports/sprint-timeline.md) (sprint histories, the clock check behind their
-tolerance, worked examples) and [`snapshot.md`](ml-engine/reports/snapshot.md) (the filtering log and the
-training rows).
+tolerance, worked examples), [`snapshot.md`](ml-engine/reports/snapshot.md) (the filtering log and the
+training rows) and [`labels.md`](ml-engine/reports/labels.md) (how often each warning sign fires).
 
 ## Synapse Platform Services
 

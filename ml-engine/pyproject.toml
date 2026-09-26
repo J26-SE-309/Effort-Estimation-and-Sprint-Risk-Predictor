@@ -13,6 +13,7 @@ dependencies = [
   "pyarrow>=16",
   "pymysql>=1.1",
   "cryptography>=42", # MySQL 8 caching_sha2_password authentication
+  "openpyxl>=3.1", # the review workbooks
 ]
 
 [project.optional-dependencies]
@@ -23,6 +24,8 @@ erp-export-tawos = "erp.extract.tawos_to_parquet:main"
 erp-profile-tawos = "erp.explore.profile_tawos:main"
 erp-build-timeline = "erp.snapshot.build_timeline:main"
 erp-build-snapshot = "erp.snapshot.build_snapshot:main"
+erp-build-labels = "erp.labels.build_labels:main"
+erp-review-sample = "erp.labels.review:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]

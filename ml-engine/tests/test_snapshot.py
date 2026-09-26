@@ -37,24 +37,37 @@ def test_clean_text_removes_code_blocks_and_collapses_whitespace():
     assert text.has_code(raw) and not text.has_code("plain words") and not text.has_code(float("nan"))
 
 
-def test_value_at_replays_the_field_backwards():
+def test_value_at_reads_the_last_change_before_the_moment():
     changes = pd.DataFrame({
         "ID": [1, 2, 3, 4],
         "Issue_ID": [10, 10, 10, 20],
         "Creation_Date": [T("2020-01-01"), T("2020-01-05"), T("2020-01-09"), T("2020-01-03")],
-        "From_String": [None, "3", "5", "2"],  # issue 10: None -> 3 -> 5 -> 8; issue 20: 2 -> 1
+        "From_String": [None, "3", "5", "2"],
+        "To_String": ["3", "5", "8", "1"],  # issue 10: none -> 3 -> 5 -> 8; issue 20: 2 -> 1
     })
     at = pd.Series({10: T("2020-01-05"), 20: T("2020-01-04"), 30: T("2020-01-04")})
-    current = pd.Series({10: 8, 20: 1, 30: 13})
+    current = pd.Series({10: "8", 20: "1", 30: "13"})
     out = history.value_at(changes, at, current)
-    assert out["value"].to_dict() == {10: "5", 20: 1, 30: 13}  # the change at exactly 01-05 is already made
+    assert out["value"].to_dict() == {10: "5", 20: "1", 30: "13"}  # the change at exactly 01-05 is already made
+    assert out["from_log"].to_dict() == {10: True, 20: True, 30: False}
     assert out["changed_later"].to_dict() == {10: True, 20: False, 30: False}
 
 
-def test_value_at_before_any_estimate_is_missing():
-    changes = pd.DataFrame({"ID": [1], "Issue_ID": [10], "Creation_Date": [T("2020-01-05")], "From_String": [None]})
-    out = history.value_at(changes, pd.Series({10: T("2020-01-01")}), pd.Series({10: 3}))
-    assert pd.isna(out.loc[10, "value"]) and out.loc[10, "changed_later"]
+def test_value_at_before_the_first_change_uses_what_it_replaced():
+    changes = pd.DataFrame({"ID": [1], "Issue_ID": [10], "Creation_Date": [T("2020-01-05")],
+                            "From_String": ["2"], "To_String": ["3"]})
+    out = history.value_at(changes, pd.Series({10: T("2020-01-01"), 11: T("2020-01-01")}), pd.Series({10: "3"}))
+    assert out.loc[10, "value"] == "2" and out.loc[10, "changed_later"]  # set at creation, changed later
+    assert pd.isna(out.loc[11, "value"]) and not out.loc[11, "from_log"]
+
+
+def test_value_at_survives_a_missing_event():
+    # Resolved in 2016, reopened in 2018 without a logged change, resolved again: the 2018 change claims the
+    # field was empty before, but in 2016 the story was resolved.
+    changes = pd.DataFrame({"ID": [1, 2], "Issue_ID": [7, 7], "Creation_Date": [T("2016-02-10"), T("2018-11-26")],
+                            "From_String": [None, None], "To_String": ["Fixed", "Fixed"]})
+    out = history.value_at(changes, pd.Series({7: T("2016-02-11")}), pd.Series({7: "Fixed"}))
+    assert out.loc[7, "value"] == "Fixed"
 
 
 def test_snapshot_time_is_start_plus_tolerance_for_planned_and_join_time_for_mid_sprint():
