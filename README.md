@@ -206,9 +206,12 @@ AgilePlatform/
     ```
 
 13. Build the stacked ensemble, the leaderboard the router reads (`ml-engine/models/arena-v1/leaderboard.json`)
-    and the arena report, then run the H1 and H2 experiments:
+    and the arena report, then run the H1 and H2 experiments. Training fits adaptive C2 intervals and the
+    confidence score automatically; `erp-fit-intervals` refits them for every saved configuration and checks
+    that the confidence bands order the accuracy:
 
     ```powershell
+    .venv\Scripts\erp-fit-intervals
     .venv\Scripts\erp-arena-report
     .venv\Scripts\erp-run-hypotheses
     ```
@@ -222,7 +225,8 @@ training rows), [`labels.md`](ml-engine/reports/labels.md) (how often each warni
 [`first-models.md`](ml-engine/reports/first-models.md) (baselines and the first M1 and M2 results) and
 [`uncertainty-and-explanations.md`](ml-engine/reports/uncertainty-and-explanations.md) (calibration, interval coverage and explanations of the bundle),
 [`arena.md`](ml-engine/reports/arena.md) (the leaderboard, significance tests and NFR checks) and
-[`hypotheses.md`](ml-engine/reports/hypotheses.md) (H1: joint learning; H2: the upstream quality signals).
+[`hypotheses.md`](ml-engine/reports/hypotheses.md) (H1: joint learning; H2: the upstream quality signals) and
+[`confidence.md`](ml-engine/reports/confidence.md) (adaptive intervals and the proposed confidence score).
 
 ## Synapse Platform Services
 
