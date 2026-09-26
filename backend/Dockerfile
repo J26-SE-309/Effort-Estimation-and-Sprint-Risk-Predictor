@@ -31,8 +31,11 @@ RUN pip install ./backend
 # The trained models (the DistilBERT weights are not in git; without them that configuration is simply absent).
 COPY ml-engine/models/arena-v1 models/arena-v1
 
+# NFR1 asks for 2 s at the 95th percentile with 10 concurrent users: one process runs the Python work of
+# requests one at a time, so several worker processes share the load (each holds its own models, ~270 MB).
 ENV MODELS_DIR=/service/models/arena-v1 \
-    HF_HUB_OFFLINE=1
+    HF_HUB_OFFLINE=1 \
+    WEB_CONCURRENCY=4
 
 WORKDIR /service/backend
 EXPOSE 8004

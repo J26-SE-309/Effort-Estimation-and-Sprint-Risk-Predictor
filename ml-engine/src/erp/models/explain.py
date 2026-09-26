@@ -30,12 +30,18 @@ def top_reasons(factors: pd.DataFrame, k: int = 3, min_share: float = MIN_REASON
 
     share is the factor's part of the total absolute contribution; factors below min_share are left out.
     """
+    values = factors.to_numpy(float)
+    total = np.abs(values).sum(axis=1)
+    shares = values / np.where(total > 0, total, 1.0)[:, None]
+    order = np.argsort(-shares, axis=1, kind="stable")
     reasons = []
-    for _, row in factors.iterrows():
-        total = row.abs().sum() or 1.0
-        up = (row[row > 0] / total).sort_values(ascending=False)
-        up = up[up >= min_share].head(k)
-        reasons.append([{"factor": factor, "share": round(float(share), 3)} for factor, share in up.items()])
+    for row, ranked in zip(shares, order, strict=True):
+        kept = []
+        for column in ranked[:k]:
+            if row[column] <= 0 or row[column] < min_share:
+                break
+            kept.append({"factor": factors.columns[column], "share": round(float(row[column]), 3)})
+        reasons.append(kept)
     return reasons
 
 

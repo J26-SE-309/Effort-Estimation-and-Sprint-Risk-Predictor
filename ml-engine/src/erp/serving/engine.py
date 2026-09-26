@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from erp.arena.predictor import Predictor, finish
 from erp.features import catalog
 from erp.serving import explain, live, recommend, sprint
 from erp.serving.router import Router
@@ -69,9 +70,14 @@ class Engine:
                  sources: pd.DataFrame) -> dict:
         model = self.router.load(config)
         text = explain.encode(model, features)
-        missing = live.missing_groups(sources)
-        out = model.predict(features, text, missing_groups=missing.to_numpy())
-        _, risk_factors, how = explain.factors(model, features, text)
+        missing = live.missing_groups(sources).to_numpy()
+        run = None
+        if isinstance(model, Predictor):  # one pass serves both the prediction and its explanation
+            run = model.run(features, text)
+            out = finish(model, features, run.log_points, run.raw, missing)
+        else:
+            out = model.predict(features, text, missing_groups=missing)
+        _, risk_factors, how = explain.factors(model, features, text, run=run, tasks=("risk",))
         risk_reasons = explain.reasons(risk_factors)
         manifest = model.manifest
         configuration = {"encoder": manifest["encoder"]["name"], "learner": manifest["config"]["learner"],

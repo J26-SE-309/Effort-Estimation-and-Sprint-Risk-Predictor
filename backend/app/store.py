@@ -32,12 +32,16 @@ def _failed(error: Exception) -> None:
 
 
 def create_tables() -> bool:
-    try:
-        Base.metadata.create_all(db.engine)
-        return True
-    except SQLAlchemyError as error:
-        _failed(error)
-        return False
+    """Create missing tables. Several worker processes start together and may race; the second try wins."""
+    for attempt in range(2):
+        try:
+            Base.metadata.create_all(db.engine)
+            return True
+        except SQLAlchemyError as error:
+            if attempt:
+                _failed(error)
+            time.sleep(0.5)
+    return False
 
 
 def record_predictions(project_id: str, sprint_id: str | None, predictions: list[dict], features: dict) -> bool:

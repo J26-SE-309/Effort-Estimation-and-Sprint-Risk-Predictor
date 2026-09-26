@@ -102,6 +102,12 @@ once at start-up.
 | `GET / PUT / DELETE /api/v1/projects/{id}/pin` | Pin a configuration for a project, overriding the router (FR12) |
 | `POST /api/v1/feedback`, `POST /api/v1/outcomes` | A product owner's decision; what really happened (FR19) |
 
+NFR1 load test against a running service (10 users, each sending 50-story backlogs back to back):
+`python backend/loadtest.py`. On the development laptop, with 4 worker processes (the container default,
+`WEB_CONCURRENCY`), the 95th percentile was 1.2 s; with a single process it was 3.4 s. Explanations cost the
+most for TF-IDF + SVR / SVM (about 2 s per 50 stories, feature-group occlusion over an expensive kernel model);
+the router never picks it for a live project, but a pinned SVR / SVM will miss NFR1.
+
 The router (R1) answers with the arena's pooled winner unless a project's own winner is clearly better or a
 configuration is pinned; every prediction names its configuration, model version and the feature groups it used,
 and is stored in the audit log (FR21). Requests may add the team's recent delivery (`team_context`) and the

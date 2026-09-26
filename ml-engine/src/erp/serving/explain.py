@@ -15,9 +15,11 @@ content"); the reasons are the factors pushing the risk up the most (explain.top
 import numpy as np
 import pandas as pd
 
-from erp.arena.predictor import Predictor, Run, StackPredictor, _logit
+from erp.arena import data
+from erp.arena.predictor import Predictor, Run, StackPredictor, _logit, with_estimated_points
 from erp.features import catalog
 from erp.models import explain
+from erp.models.inputs import design
 
 TREE_LEARNERS = {"lightgbm", "xgboost", "catboost"}
 
@@ -41,34 +43,44 @@ def method(model) -> str:
     return "feature-group occlusion"
 
 
-def factors(model, stories: pd.DataFrame, text=None) -> tuple[pd.DataFrame, pd.DataFrame, str]:
-    """(effort contributions, risk contributions, method): one row per story, one column per planning factor."""
+def factors(model, stories: pd.DataFrame, text=None, run: Run | None = None,
+            tasks: tuple[str, ...] = ("effort", "risk")) -> tuple[pd.DataFrame | None, pd.DataFrame | None, str]:
+    """(effort contributions, risk contributions, method): one row per story, one column per planning factor.
+
+    tasks: which to explain (TreeSHAP of a large effort model is the costliest step of a request, and the
+    service shows only the risk reasons). run: a pass the caller already made, reused instead of predicting again.
+    """
     how = method(model)
     if how == "TreeSHAP":
-        run = model.run(stories, text)
-        return _tree(model, run) + (how,)
+        return _tree(model, run or model.run(stories, text), tasks) + (how,)
     if how.startswith("TreeSHAP of the stack"):
-        return _stack(model, stories, text) + (how,)
-    return _occlusion(model, stories, text) + (how,)
+        return _stack(model, stories, text, tasks) + (how,)
+    return _occlusion(model, stories, text, tasks) + (how,)
 
 
-def _tree(model: Predictor, run: Run) -> tuple[pd.DataFrame, pd.DataFrame]:
-    effort = model.effort_model.contributions(run.inputs["effort"])
-    risk = model.risk_model.contributions(run.inputs["risk"])
-    return explain.by_factor(effort, catalog.factor_of), explain.by_factor(risk, catalog.factor_of)
+def _tree(model: Predictor, run: Run, tasks=("effort", "risk")) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    out = []
+    for task, learner in (("effort", model.effort_model), ("risk", model.risk_model)):
+        out.append(explain.by_factor(learner.contributions(run.inputs[task]), catalog.factor_of)
+                   if task in tasks else None)
+    return tuple(out)
 
 
-def _stack(model: StackPredictor, stories: pd.DataFrame, text) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _stack(model: StackPredictor, stories: pd.DataFrame, text, tasks=("effort", "risk")):
     parts = {}
     for name, base in model.bases.items():
         run = base.run(stories, None if text is None else text.get(base.encoder_name))
-        parts[name] = _tree(base, run)
+        parts[name] = _tree(base, run, tasks)
     manifest = model.manifest
-    effort = sum(w * parts[n][0] for n, w in zip(manifest["effort"]["bases"], manifest["effort"]["meta"]["weights"],
-                                                   strict=True))
-    risk = sum(w * parts[n][1] for n, w in zip(manifest["risk"]["bases"], manifest["risk"]["meta"]["weights"],
-                                                 strict=True))
-    return effort.fillna(0.0), risk.fillna(0.0)
+    out = []
+    for i, task in enumerate(("effort", "risk")):
+        if task not in tasks:
+            out.append(None)
+            continue
+        blend = sum(w * parts[n][i] for n, w in zip(manifest[task]["bases"], manifest[task]["meta"]["weights"],
+                                                    strict=True))
+        out.append(blend.fillna(0.0))
+    return tuple(out)
 
 
 def _baseline(model) -> dict[str, float]:
@@ -81,23 +93,66 @@ def _baseline(model) -> dict[str, float]:
     return dict(prep.medians) if prep is not None else {}
 
 
-def _occlusion(model, stories: pd.DataFrame, text) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _one_task(model, stories: pd.DataFrame, text, task: str) -> np.ndarray:
+    """One task's raw output (log points, or the risk score) without running the other task's model."""
+    if isinstance(model, Predictor) and not hasattr(model, "joint"):
+        learner = model.effort_model if task == "effort" else model.risk_model
+        return learner.predict(design(stories, text, task, text_columns=data.text_columns(model.encoder_name),
+                                      levels=model.levels))
+    if hasattr(model, "models"):  # DistilBERT
+        return model.models[task].predict(text, design(stories, None, task, use_text=False, levels=model.levels))
+    return model.raw(stories, text)[0 if task == "effort" else 1]  # M3 and stacks: one pass gives both
+
+
+def _stacked(values: list):
+    """Several copies of the text input as one batch (arrays, a stack's dict of arrays, or DistilBERT's texts)."""
+    first = values[0]
+    if isinstance(first, dict):
+        return {name: np.vstack([v[name] for v in values]) for name in first}
+    if isinstance(first, pd.Series):
+        return pd.concat(values, ignore_index=True)
+    return np.vstack(values)
+
+
+def _occlusion(model, stories: pd.DataFrame, text, tasks=("effort", "risk")):
+    """Each factor replaced by a neutral value in turn; all copies go through the model as one batch.
+
+    M1's estimate is held fixed while the risk is occluded (M2 reads it for stories without points), so the
+    risk reasons need only the risk model.
+    """
     medians = _baseline(model)
     text = encode(model, stories) if text is None else text
     empty = encode(model, stories.assign(title="", description_text=""))
     log_points, raw = model.raw(stories, text)
-    by_factor = {}
-    for factor in dict.fromkeys(catalog.factor_of(f.name) for f in catalog.FEATURES):
+    base = with_estimated_points(stories, log_points)
+    factors = list(dict.fromkeys(catalog.factor_of(f.name) for f in catalog.FEATURES))
+    copies, texts, which = [], [], []
+    for number, factor in enumerate(factors):
         columns = [f.name for f in catalog.FEATURES if f.factor == factor]
-        neutral = stories.copy()
+        neutral = base.copy()
         for column in columns:
             neutral[column] = medians.get(column, np.nan)
-        occluded_text = empty if factor == catalog.TEXT_FACTOR else text
-        occluded_log, occluded_raw = model.raw(neutral, occluded_text)
-        by_factor[factor] = (log_points - occluded_log, _logit(raw) - _logit(occluded_raw))
-    effort = pd.DataFrame({f: v[0] for f, v in by_factor.items()}, index=stories.index)
-    risk = pd.DataFrame({f: v[1] for f, v in by_factor.items()}, index=stories.index)
-    return effort, risk
+        # a story already at the neutral values is unchanged: its contribution is exactly 0, no need to predict
+        same = (base[columns] == neutral[columns]) | (base[columns].isna() & neutral[columns].isna())
+        changed = np.ones(len(base), bool) if factor == catalog.TEXT_FACTOR else ~same.all(axis=1).to_numpy()
+        if changed.any():
+            copies.append(neutral[changed])
+            factor_text = empty if factor == catalog.TEXT_FACTOR else text
+            texts.append({k: v[changed] for k, v in factor_text.items()} if isinstance(factor_text, dict)
+                         else factor_text[changed])
+            which += [(number, row) for row in np.flatnonzero(changed)]
+    out = []
+    for task, original, transform in (("effort", log_points, np.asarray), ("risk", raw, _logit)):
+        if task not in tasks:
+            out.append(None)
+            continue
+        contribution = np.zeros((len(factors), len(stories)))
+        if copies:
+            occluded = np.asarray(_one_task(model, pd.concat(copies, ignore_index=True), _stacked(texts), task))
+            for (number, row), value in zip(which, occluded, strict=True):
+                contribution[number, row] = transform(original[row]) - transform(value)
+        out.append(pd.DataFrame(contribution.T, index=stories.index, columns=factors))
+    return tuple(out)
 
 
 def reasons(contributions: pd.DataFrame, k: int = 3) -> list[list[dict]]:
