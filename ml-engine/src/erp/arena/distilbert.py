@@ -21,6 +21,7 @@ those stored weights, so the reported numbers are the ones the service will repr
 """
 
 import argparse
+import hashlib
 import json
 import time
 from dataclasses import asdict
@@ -217,15 +218,13 @@ class DistilBertPredictor:
     encoder_name = "distilbert"
 
     def __init__(self, directory: Path):
-        from erp.models.calibration import Calibrator, ConformalIntervals
+        from erp.arena.predictor import load_uncertainty
 
         self.directory = directory
         self.manifest = json.loads((directory / "model.json").read_text(encoding="utf-8"))
         self.levels = self.manifest["levels"]
         self.models = {t: DistilBertLearner.load(directory, t, self.manifest[t]["model"]) for t in ("effort", "risk")}
-        self.intervals = ConformalIntervals.from_dict(self.manifest["effort"]["intervals"])
-        self.calibrator = Calibrator.from_dict(self.manifest["risk"]["calibrator"])
-        self.threshold, self.bands = self.manifest["risk"]["threshold"], self.manifest["risk"]["bands"]
+        load_uncertainty(self)
 
     def encode(self, stories: pd.DataFrame, fresh: bool = False) -> pd.Series:
         return encoders.story_text(stories)  # DistilBERT reads the text itself
@@ -236,29 +235,37 @@ class DistilBertPredictor:
                for t, m in self.models.items()}
         return out["effort"], out["risk"]
 
-    def predict(self, stories: pd.DataFrame, text=None) -> pd.DataFrame:
+    def predict(self, stories: pd.DataFrame, text=None, missing_groups=0) -> pd.DataFrame:
         from erp.arena.predictor import finish
 
         log_points, raw = self.raw(stories, text)
-        return finish(log_points, raw, self.intervals, self.calibrator, self.threshold, self.bands, stories.index)
+        return finish(self, stories, log_points, raw, missing_groups)
 
 
 def tune(arena: ArenaData, task: str) -> dict:
-    """The grid on the inner folds; returns the tuning summary with the best settings."""
+    """The grid on the inner folds; returns the tuning summary with the best settings, and saves the best
+    setting's inner-fold predictions (the adaptive intervals learn from them, as for every configuration)."""
     train, texts = arena.train, arena.texts[arena.mask("train")]
     x = design(train, None, task, use_text=False, levels=arena.levels)
     y = targets(train, task)
     started, results = time.perf_counter(), []
     for params in GRID:
-        scores, sizes = [], []
+        scores, sizes, predictions = [], [], []
         for i, (fit, val) in enumerate(arena.folds):
             learner = DistilBertLearner(task).fit(texts[fit], x[fit], y[fit], texts[val], x[val], y[val], params)
-            scores.append(fold_score(task, y[val], learner.predict(texts[val], x[val], device="cuda")))
+            predicted = learner.predict(texts[val], x[val], device="cuda")
+            predictions.append(pd.DataFrame({"fold": i + 1, "prediction": predicted}, index=train.index[val]))
+            scores.append(fold_score(task, y[val], predicted))
             sizes.append(int(val.sum()))
             log(f"  {task} {params} fold {i + 1}: {scores[-1]:.4f}")
-        results.append({"params": params, "value": float(np.average(scores, weights=sizes))})
+        results.append({"params": params, "value": float(np.average(scores, weights=sizes)),
+                        "predictions": pd.concat(predictions)})
     pick = min if task == "effort" else max
     best = pick(results, key=lambda r: r["value"])
+    (WORK_DIR / "oof").mkdir(parents=True, exist_ok=True)
+    best["predictions"].to_parquet(WORK_DIR / "oof" / f"distilbert-{task}.parquet")
+    results = [{k: v for k, v in r.items() if k != "predictions"} for r in results]
+    best = {k: v for k, v in best.items() if k != "predictions"}
     return {"trials": len(GRID), "complete": len(GRID), "pruned": 0,
             "metric": "MAE in story points" if task == "effort" else "ROC-AUC", "inner_folds": configs.INNER_FOLDS,
             "sampler": "grid of Devlin et al. (2019): learning rate x batch size", "grid": results,
@@ -327,7 +334,12 @@ def finish_on_cpu(arena: ArenaData) -> None:
         raise AssertionError("distilbert: the reloaded model does not reproduce its predictions")
     manifest["check"] = {"round_trip": f"reloaded model reproduces the test predictions within {tolerance:g}",
                          "size_mb": directory_size(DIRECTORY)}
+    manifest["weights_sha256"] = {f.name: hashlib.sha256(f.read_bytes()).hexdigest()
+                                  for f in sorted(DIRECTORY.glob("*.safetensors"))}  # kept local, not in git
     path.write_text(json.dumps(manifest, indent=1, default=str), encoding="utf-8")
+    from erp.arena import intervals  # adaptive C2 (from the inner-fold predictions) and the confidence score
+
+    intervals.fit(arena, "distilbert")
     log(f"distilbert: model.json written ({manifest['check']['size_mb']} MB)")
 
 

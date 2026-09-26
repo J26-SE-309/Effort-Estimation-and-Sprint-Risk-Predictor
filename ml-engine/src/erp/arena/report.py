@@ -33,7 +33,7 @@ from erp.arena.train import directory_size, latency, log
 from erp.explore.profile_tawos import md_table
 from erp.models import metrics
 from erp.models.bundle import INTERVAL_COVERAGES, code_version
-from erp.models.calibration import Calibrator, ConformalIntervals, coverage_and_width
+from erp.models.calibration import Calibrator, coverage_and_width, load_intervals
 
 WEIGHTS = {"effort_sa": 0.35, "risk_f1": 0.25, "calibration": 0.25, "latency": 0.15}  # ML guide 4.8
 ALTERNATIVE_WEIGHTS = {
@@ -68,11 +68,12 @@ def outputs(arena: ArenaData, name: str, manifest: dict) -> pd.DataFrame:
     return stored.assign(points=np.expm1(stored["effort_log"]), probability=calibrator.predict(stored["risk_raw"]))
 
 
-def effort_metrics(stories: pd.DataFrame, out: pd.DataFrame, manifest: dict, baselines: dict) -> dict:
+def effort_metrics(stories: pd.DataFrame, out: pd.DataFrame, manifest: dict, baselines: dict,
+                   directory: Path) -> dict:
     result = metrics.effort_report(stories["story_points"], out["points"], stories["Project_ID"])
-    intervals = ConformalIntervals.from_dict(manifest["effort"]["intervals"])
+    intervals = load_intervals(manifest["effort"]["intervals"], directory, manifest.get("levels"))
     for coverage in INTERVAL_COVERAGES:
-        low, high = intervals.interval(out["effort_log"], coverage)
+        low, high = intervals.bounds(stories, out["effort_log"].to_numpy(), coverage)
         result[f"coverage_{coverage:g}"], result[f"width_{coverage:g}"] = coverage_and_width(
             stories["story_points"], low, high)
     for name, mae in baselines.items():
@@ -397,8 +398,8 @@ def build_report(arena, table, effort_base, risk_base, sig_effort, sig_risk, sen
         md_table(pd.DataFrame(config_rows)), "",
         "## 2. Effort (M1): story points", "",
         "Test split, story points on each project's own scale. SA is against random guessing; 'vs mean guess' is "
-        "how much lower the MAE is than always guessing the project's mean (NFR2). Intervals are C2 (split "
-        "conformal).", "",
+        "how much lower the MAE is than always guessing the project's mean (NFR2). Intervals are C2 (adaptive: "
+        "normalized split conformal, see `confidence.md`).", "",
         md_table(pd.DataFrame(effort_rows)), "",
         "## 3. Risk (M2): will the story run into trouble?", "",
         "Test split. Probabilities after each configuration's own C1 calibrator; ECE before C1 shows why it is "
@@ -473,7 +474,8 @@ def main(argv: list[str] | None = None) -> None:
         threshold = manifest["risk"]["threshold"]
         results[name] = {"out": out, "threshold": threshold}
         effort = effort_metrics(test, out[test_mask], manifest, {"mean": effort_base["mean"]["mae"],
-                                                                 "median": effort_base["median"]["mae"]})
+                                                                 "median": effort_base["median"]["mae"]},
+                                MODELS_DIR / name)
         risk = risk_metrics(test, out[test_mask], threshold)
         log(f"timing {name}")
         timing = latency(predictor.load(MODELS_DIR / name), test)

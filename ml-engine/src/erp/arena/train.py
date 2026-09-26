@@ -292,6 +292,9 @@ def write(config, arena, manifest, models, log_points, raw, fold_outputs, full_t
     save_predictions(config, arena, log_points, raw, fold_outputs)
     manifest["check"] = verify(directory, arena, full_text, log_points, raw)
     path.write_text(json.dumps(manifest, indent=1, default=str), encoding="utf-8")
+    from erp.arena import intervals  # adaptive C2 and the confidence score, from the inner-fold predictions
+
+    intervals.fit(arena, config.id)
     log(f"{config.id}: saved to {directory} ({manifest['check']['size_mb']} MB), reload check passed")
 
 

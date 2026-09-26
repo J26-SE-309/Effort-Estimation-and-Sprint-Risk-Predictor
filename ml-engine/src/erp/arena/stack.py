@@ -104,4 +104,7 @@ def build(arena: ArenaData, force: bool = False) -> bool:
                          "size_mb": directory_size(directory)}
     path.write_text(json.dumps(manifest, indent=1, default=str), encoding="utf-8")
     log(f"stack: effort from {', '.join(chosen['effort'])}; risk from {', '.join(chosen['risk'])}")
+    from erp.arena import intervals  # adaptive C2 and the confidence score
+
+    intervals.fit(arena, "stack")
     return True

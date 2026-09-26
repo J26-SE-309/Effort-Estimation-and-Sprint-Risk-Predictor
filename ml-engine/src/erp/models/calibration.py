@@ -85,6 +85,10 @@ class ConformalIntervals:
         centre = np.asarray(log_predicted, float)
         return np.maximum(np.expm1(centre - q), 0.0), np.expm1(centre + q)
 
+    def bounds(self, stories, log_points, coverage: float) -> tuple[np.ndarray, np.ndarray]:
+        """Same signature as AdaptiveIntervals.bounds; the stories are not needed here."""
+        return self.interval(log_points, coverage)
+
     def to_dict(self) -> dict:
         return {"method": "split conformal on log(1 + story points)", "quantiles": self.quantiles}
 
@@ -97,3 +101,81 @@ def coverage_and_width(actual, low, high) -> tuple[float, float]:
     actual = np.asarray(actual, float)
     inside = (actual >= low) & (actual <= high)
     return float(inside.mean()), float(np.mean(np.asarray(high) - np.asarray(low)))
+
+
+class AdaptiveIntervals:
+    """C2, adaptive: normalized split conformal on log(1 + story points) (Papadopoulos et al., 2008; Lei et al.,
+    2018).
+
+    Plain split conformal gives every story the same interval on the log scale, so every story's range is the
+    same multiple of its prediction. Here a small LightGBM 'difficulty model' predicts how far off the effort
+    model tends to be for a story like this one (from its features and its predicted size). It learns from
+    the effort model's inner-fold predictions on training stories, each made by a model that never saw that
+    story, never from the calibration split. On the calibration split the scores |actual - prediction| /
+    difficulty are sorted and, for coverage c, q is the ceil((n + 1) c)-th smallest; the interval is
+    prediction +- q x difficulty. The coverage guarantee is the same as before; the width now follows the story.
+    """
+
+    method = "normalized split conformal on log(1 + story points)"
+    DIFFICULTY = {"objective": "l2", "n_estimators": 400, "learning_rate": 0.03, "num_leaves": 15,
+                  "min_child_samples": 100, "subsample": 0.8, "subsample_freq": 1, "colsample_bytree": 0.8,
+                  "random_state": 42, "verbose": -1}
+    FILE = "effort-difficulty.txt"
+
+    def __init__(self, levels: dict | None = None):
+        self.levels = levels
+        self.booster = None
+        self.floor = 0.0
+        self.quantiles: dict[str, float] = {}
+
+    def inputs(self, stories, log_points):
+        from erp.models.inputs import structured
+
+        return structured(stories, "effort", self.levels).assign(predicted_log=np.asarray(log_points, float))
+
+    def fit_difficulty(self, stories, log_points, log_actual) -> "AdaptiveIntervals":
+        import lightgbm as lgb
+
+        residuals = np.abs(np.asarray(log_actual, float) - np.asarray(log_points, float))
+        model = lgb.LGBMRegressor(**self.DIFFICULTY).fit(self.inputs(stories, log_points), residuals)
+        self.booster = model.booster_
+        # a floor, so a story the model thinks is trivially easy cannot get a zero-width interval
+        self.floor = float(np.percentile(self.booster.predict(self.inputs(stories, log_points)), 5))
+        return self
+
+    def difficulty(self, stories, log_points) -> np.ndarray:
+        return np.maximum(self.booster.predict(self.inputs(stories, log_points)), self.floor)
+
+    def fit(self, stories, log_actual, log_points, coverages=(0.8, 0.9)) -> "AdaptiveIntervals":
+        scores = np.sort(np.abs(np.asarray(log_actual, float) - np.asarray(log_points, float))
+                         / self.difficulty(stories, log_points))
+        n = len(scores)
+        for coverage in coverages:
+            self.quantiles[f"{coverage:g}"] = float(scores[min(math.ceil((n + 1) * coverage) - 1, n - 1)])
+        return self
+
+    def bounds(self, stories, log_points, coverage: float) -> tuple[np.ndarray, np.ndarray]:
+        centre = np.asarray(log_points, float)
+        half = self.quantiles[f"{coverage:g}"] * self.difficulty(stories, centre)
+        return np.maximum(np.expm1(centre - half), 0.0), np.expm1(centre + half)
+
+    def save(self, directory) -> dict:
+        self.booster.save_model(directory / self.FILE)
+        return {"method": self.method, "difficulty_model": self.FILE, "difficulty_params": self.DIFFICULTY,
+                "floor": self.floor, "quantiles": self.quantiles}
+
+    @classmethod
+    def load(cls, directory, spec: dict, levels: dict) -> "AdaptiveIntervals":
+        import lightgbm as lgb
+
+        intervals = cls(levels)
+        intervals.booster = lgb.Booster(model_file=str(directory / spec["difficulty_model"]))
+        intervals.floor, intervals.quantiles = spec["floor"], dict(spec["quantiles"])
+        return intervals
+
+
+def load_intervals(spec: dict, directory=None, levels: dict | None = None):
+    """C2 from a model manifest: adaptive when it has a difficulty model, plain split conformal otherwise."""
+    if spec.get("method") == AdaptiveIntervals.method:
+        return AdaptiveIntervals.load(directory, spec, levels)
+    return ConformalIntervals.from_dict(spec)

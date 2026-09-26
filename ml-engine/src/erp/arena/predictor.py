@@ -2,7 +2,8 @@
 
 Every configuration folder under ml-engine/models/arena-v1/ holds model.json plus its model files; encoders
 fitted on our text are shared in encoders/. A predictor gives the same output for every configuration:
-predicted story points with C2 intervals, and the C1-calibrated risk probability with its level and flag.
+predicted story points with C2 intervals, the C1-calibrated risk probability with its level and flag, and
+the confidence band (erp.models.confidence).
 """
 
 import json
@@ -14,7 +15,8 @@ import pandas as pd
 from erp.arena import data
 from erp.models import encoders
 from erp.models.bundle import INTERVAL_COVERAGES
-from erp.models.calibration import Calibrator, ConformalIntervals
+from erp.models.calibration import Calibrator, load_intervals
+from erp.models.confidence import Confidence
 from erp.models.inputs import design
 from erp.models.learners import LEARNERS
 from erp.models.mlp import MLP
@@ -43,9 +45,7 @@ class Predictor:
             learner = LEARNERS[self.manifest["config"]["learner"]]
             self.effort_model = learner.load(directory, "effort", effort["model"])
             self.risk_model = learner.load(directory, "risk", risk["model"])
-        self.intervals = ConformalIntervals.from_dict(effort["intervals"])
-        self.calibrator = Calibrator.from_dict(risk["calibrator"])
-        self.threshold, self.bands = risk["threshold"], risk["bands"]
+        load_uncertainty(self)
 
     def encode(self, stories: pd.DataFrame, fresh: bool = False) -> np.ndarray:
         """fresh: encode even when a cached SBERT vector exists (what a never-seen story costs)."""
@@ -65,9 +65,9 @@ class Predictor:
         x2 = design(stories, text, "risk", text_columns=columns, levels=self.levels)
         return self.effort_model.predict(x1), self.risk_model.predict(x2)
 
-    def predict(self, stories: pd.DataFrame, text: np.ndarray | None = None) -> pd.DataFrame:
+    def predict(self, stories: pd.DataFrame, text: np.ndarray | None = None, missing_groups=0) -> pd.DataFrame:
         log_points, raw = self.raw(stories, text)
-        return finish(log_points, raw, self.intervals, self.calibrator, self.threshold, self.bands, stories.index)
+        return finish(self, stories, log_points, raw, missing_groups)
 
 
 class StackPredictor:
@@ -78,19 +78,16 @@ class StackPredictor:
         self.manifest = json.loads((directory / MANIFEST).read_text(encoding="utf-8"))
         bases = set(self.manifest["effort"]["bases"]) | set(self.manifest["risk"]["bases"])
         self.bases = {name: Predictor(directory.parent / name) for name in sorted(bases)}
-        effort, risk = self.manifest["effort"], self.manifest["risk"]
-        self.intervals = ConformalIntervals.from_dict(effort["intervals"])
-        self.calibrator = Calibrator.from_dict(risk["calibrator"])
-        self.threshold, self.bands = risk["threshold"], risk["bands"]
+        load_uncertainty(self)
 
     def raw(self, stories: pd.DataFrame, text: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
         outputs = {name: base.raw(stories, None if text is None else text.get(base.encoder_name))
                    for name, base in self.bases.items()}
         return combine(self.manifest, outputs)
 
-    def predict(self, stories: pd.DataFrame, text: dict | None = None) -> pd.DataFrame:
+    def predict(self, stories: pd.DataFrame, text: dict | None = None, missing_groups=0) -> pd.DataFrame:
         log_points, raw = self.raw(stories, text)
-        return finish(log_points, raw, self.intervals, self.calibrator, self.threshold, self.bands, stories.index)
+        return finish(self, stories, log_points, raw, missing_groups)
 
 
 def combine(manifest: dict, outputs: dict[str, tuple[np.ndarray, np.ndarray]]) -> tuple[np.ndarray, np.ndarray]:
@@ -104,16 +101,33 @@ def combine(manifest: dict, outputs: dict[str, tuple[np.ndarray, np.ndarray]]) -
     return np.asarray(log_points, float), 1 / (1 + np.exp(-z))
 
 
-def finish(log_points, raw, intervals, calibrator, threshold, bands, index) -> pd.DataFrame:
-    probability = calibrator.predict(raw)
+def load_uncertainty(model) -> None:
+    """C2, C1, the threshold, the risk bands and the confidence score from model.json."""
+    effort, risk = model.manifest["effort"], model.manifest["risk"]
+    model.intervals = load_intervals(effort["intervals"], model.directory, model.manifest.get("levels"))
+    model.calibrator = Calibrator.from_dict(risk["calibrator"])
+    model.threshold, model.bands = risk["threshold"], risk["bands"]
+    spec = model.manifest.get("confidence")
+    model.confidence = Confidence.from_dict(spec) if spec else None
+
+
+def finish(model, stories: pd.DataFrame, log_points, raw, missing_groups=0) -> pd.DataFrame:
+    """From raw outputs to the prediction: points and C2 intervals, C1 probability, risk level, confidence.
+
+    missing_groups: how many upstream feature groups were unavailable for each story (FR17), for confidence.
+    """
+    probability = model.calibrator.predict(raw)
     out = pd.DataFrame({"predicted_story_points": np.expm1(log_points), "log_points": log_points,
-                        "raw_score": raw, "spillover_probability": probability}, index=index)
+                        "raw_score": raw, "spillover_probability": probability}, index=stories.index)
     for coverage in INTERVAL_COVERAGES:
-        low, high = intervals.interval(log_points, coverage)
+        low, high = model.intervals.bounds(stories, log_points, coverage)
         out[f"interval_{coverage:g}_low"], out[f"interval_{coverage:g}_high"] = low, high
-    out["at_risk"] = probability >= threshold
-    out["risk_level"] = np.select([probability >= bands["high"], probability >= bands["medium"]],
+    out["at_risk"] = probability >= model.threshold
+    out["risk_level"] = np.select([probability >= model.bands["high"], probability >= model.bands["medium"]],
                                   ["high", "medium"], default="low")
+    if model.confidence is not None:
+        out = out.join(model.confidence.score(stories, out["interval_0.8_low"], out["interval_0.8_high"],
+                                              out["predicted_story_points"], probability, missing_groups))
     return out
 
 
