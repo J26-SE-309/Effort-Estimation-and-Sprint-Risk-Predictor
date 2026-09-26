@@ -18,6 +18,7 @@ TAWOS_DUMP = DATA_DIR / "TAWOS" / "TAWOS.sql"
 # Everything this component generates lives under one folder.
 WORK_DIR = DATA_DIR / "effort-risk"
 TAWOS_PARQUET_DIR = WORK_DIR / "tawos-raw"  # one Parquet file per TAWOS table, unmodified
+INTERIM_DIR = WORK_DIR / "interim"  # derived tables (sprint timelines, snapshots) that later steps read
 
 
 def tawos_mysql_settings() -> dict:
