@@ -49,6 +49,11 @@ def recently_down() -> bool:
     return not _usable()
 
 
+def note_failure(error: Exception) -> None:
+    """A database operation elsewhere (app.history) failed: stop trying for RETRY_SECONDS."""
+    _failed(error)
+
+
 def migrate(revision: str = "head") -> bool:
     """Bring the database to the latest migration (app/migrations), or up to `revision`. The worker processes
     start together: on PostgreSQL an advisory lock lets one migrate while the others wait and then find nothing

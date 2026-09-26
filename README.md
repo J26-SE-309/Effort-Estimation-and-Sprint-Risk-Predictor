@@ -124,6 +124,7 @@ once at start-up.
 | `GET /api/v1/models` | The arena's configurations with their leaderboard metrics (FR10) |
 | `GET / PUT / DELETE /api/v1/projects/{id}/pin` | Pin a configuration for a project, overriding the router (FR12) |
 | `POST /api/v1/feedback`, `POST /api/v1/outcomes` | A product owner's decision; what really happened (FR19) |
+| `GET / POST /api/v1/projects/{id}/history` | The team's sprint history, and importing it (see [Sprint history](#sprint-history)) |
 
 NFR1 load test against a running service (10 users, each sending 50-story backlogs back to back):
 `python backend/loadtest.py`. In the container (`docker compose up`: 4 worker processes with one native thread
@@ -138,10 +139,65 @@ for a live project, but a pinned SVR / SVM will miss NFR1.
 The router (R1) answers with the arena's pooled winner unless a project's own winner is clearly better or a
 configuration is pinned; every prediction names its configuration, model version and the feature groups it used,
 and is stored in the audit log (FR21). Requests may add the team's recent delivery (`team_context`) and the
-sprint (`sprint_context`); without them the prediction is flagged as a cold start and its confidence is lower.
+sprint (`sprint_context`); otherwise they come from the project's sprint history, and without either the
+prediction is flagged as a cold start and its confidence is lower.
 The shared JSON Schemas live in
 [`Synapse-Web/contracts/effort-estimation`](https://github.com/J26-SE-309/Synapse-Web/tree/main/contracts/effort-estimation);
 keep them in sync with `backend/app/schemas.py`.
+
+### Sprint history
+
+The models learned from each team's past sprints: velocity (points finished in the last 3 closed sprints), how
+much it varies, how often stories spill over or are reopened, and how long stories take (FR5). **The platform owns
+the sprints.** Until it serves them through an API, this service keeps copies of the sprint records in its own
+tables, each labelled with where it came from: `imported` (a CSV through the API), `tawos` (real TAWOS sprints,
+development data) or `synthetic` (made up for tests and demos, never used in any evaluation). `SOURCE` in
+`backend/app/history.py` is the one place that says where records come from: when the platform's API exists, a
+client returning the same record format replaces it, and the development data is deleted.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/v1/projects/{id}/history` | What the models see about the team now, whether it is still a cold start, and its sprints |
+| `POST /api/v1/projects/{id}/history` | Import the project's sprint history from a CSV (`text/csv`); replaces its records |
+
+Every estimate fills the team and sprint context from the project's history; values the caller sends win, and
+`feature_sources` says which answered (`history` or `request`). After 3 closed sprints a team is no longer a cold
+start. The numbers are computed by `ml-engine/src/erp/serving/history.py` with the training pipeline's own code
+(`erp/features/team.py`); `erp-history-parity` replays the real TAWOS sprints through it and compares with the
+features training used ([`history-parity.md`](ml-engine/reports/history-parity.md)): every feature matches for
+all 20,827 stories, except the cycle time of 31 stories, where stories resolved in the same second meet at the
+edge of "the last 50".
+
+**The record format (the CSV import):** one row per story per sprint (a story carried into the next sprint has a
+row in each), with a header. A row without a `sprint_id` is a resolved story that was never in a sprint: only its
+cycle time counts. Times are ISO 8601 (UTC when no zone is given). Example:
+[`backend/examples/sprint-history-synthetic.csv`](backend/examples/sprint-history-synthetic.csv).
+
+| Column | Meaning |
+|---|---|
+| `sprint_id`, `sprint_name` | The sprint (required for a story in a sprint: `sprint_started_at`, `sprint_planned_end`, `committed_at`) |
+| `sprint_started_at`, `sprint_planned_end`, `sprint_closed_at` | When the sprint started, was planned to end, and closed (empty while it runs) |
+| `story_id`, `issue_type` | The story (required); Story, Task, Bug, Improvement or New Feature |
+| `committed_at`, `left_at` | When it was committed to the sprint; when it was taken out before the end (empty: still in) |
+| `points_at_commit`, `points_at_close` | Its story points then |
+| `done_in_sprint` | `true` if finished in this sprint (the sprint's velocity) |
+| `spilled_over`, `reopened` | At the story's first sprint: not done by the end (risk rule R1); reopened after done, then or in the next sprint (R6) |
+| `started_at`, `resolved_at`, `hours_in_progress` | When work started, when it was resolved, and the hours it spent in progress (cycle time) |
+
+The import checks every row (dates in order, one value per sprint, no negative points, each story once per sprint)
+and lists every problem by row; nothing is imported while there are any.
+
+Development data, run from `backend/` (into the database `backend/.env` names, else the local one):
+
+```powershell
+python -m app.devdata load                    # TAWOS-MESOS and TAWOS-INDY (needs the Datasets folder) and the SYN-* teams
+python -m app.devdata list
+python -m app.devdata delete                  # all development records, and those projects' predictions
+```
+
+The `SYN-*` teams cover what TAWOS lacks: a brand-new team, teams with 1 and 2 closed sprints (still cold starts),
+steady and erratic teams, and a team that never estimates. They are synthetic and must not be used to evaluate
+the models (ML guide 7.2); name them in the proposal's AI-use disclosure (Appendix H).
 
 ## ML pipeline: TAWOS data
 

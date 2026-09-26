@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import DateTime, func, select
+from sqlalchemy import DateTime, func, inspect, select
 
 from app import db, store
 from app.tables import Base
@@ -44,7 +44,8 @@ def backup(directory: Path) -> tuple[Path, dict[str, int]]:
                               "created": datetime.now(UTC).isoformat(timespec="seconds")}) + "\n")
         for table in Base.metadata.sorted_tables:
             counts[table.name] = 0
-            for row in connection.execution_options(yield_per=BATCH).execute(select(table)):
+            ordered = select(table).order_by(*table.primary_key.columns)  # history_items: the records' order
+            for row in connection.execution_options(yield_per=BATCH).execute(ordered):
                 values = {k: v.isoformat() if isinstance(v, datetime) else v for k, v in row._mapping.items()}
                 out.write(json.dumps({"table": table.name, "row": values}) + "\n")
                 counts[table.name] += 1
@@ -52,15 +53,16 @@ def backup(directory: Path) -> tuple[Path, dict[str, int]]:
 
 
 def restore(path: Path) -> dict[str, int]:
-    tables = {table.name: table for table in Base.metadata.sorted_tables}
     with gzip.open(path, "rt", encoding="utf-8") as lines:
         header = json.loads(next(lines))
         if header.get("format") != FORMAT:
             raise SystemExit(f"{path} is not a backup of this service (format {header.get('format')!r})")
         if not store.migrate(header["revision"]):  # the tables as they were when the backup was taken
             raise SystemExit("the database cannot be reached or migrated")
-        counts = dict.fromkeys(tables, 0)
         with db.engine.begin() as connection:
+            present = set(inspect(connection).get_table_names())  # the tables at the backup's migration
+            tables = {table.name: table for table in Base.metadata.sorted_tables if table.name in present}
+            counts = dict.fromkeys(tables, 0)
             if (revision := _revision(connection)) != header["revision"]:
                 raise SystemExit(f"the backup was taken at migration {header['revision']}, the database is already "
                                  f"at {revision}: restore into a new, empty database")
@@ -72,9 +74,12 @@ def restore(path: Path) -> dict[str, int]:
             for line in lines:
                 item = json.loads(line)
                 table = tables[item["table"]]
+                # An id the database numbers itself is left to it (PostgreSQL's counter would otherwise lag
+                # behind); rows come in their original order, so the new ids keep it.
+                generated = {c.name for c in table.primary_key.columns if c.autoincrement is True}
                 pending[table.name].append({
                     k: datetime.fromisoformat(v) if v is not None and isinstance(table.c[k].type, DateTime) else v
-                    for k, v in item["row"].items()})
+                    for k, v in item["row"].items() if k not in generated})
                 counts[table.name] += 1
                 if len(pending[table.name]) >= BATCH:
                     connection.execute(table.insert(), pending[table.name])

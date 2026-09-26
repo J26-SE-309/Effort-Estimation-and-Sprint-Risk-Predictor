@@ -22,15 +22,16 @@ from concurrent.futures import ThreadPoolExecutor
 BUDGET_SECONDS = 2.0
 
 
-def backlog(stories: int, user: int) -> dict:
+def backlog(stories: int, user: int, project: str | None = None) -> dict:
     return {
-        "project_id": f"LOAD-{user}",
+        "project_id": project or f"LOAD-{user}",
         "stories": [{"story_id": f"U{user}-S{i}", "title": f"Story {i}: export report type {i % 7} for user {user}",
                      "description": "As an analyst I want to export the report so that I can share it. It must be "
                                     "fast and handle large reports.",
                      "story_points": [1, 2, 3, 5, 8][i % 5], "blocker_count": int(i % 6 == 0)}
                     for i in range(stories)],
-        "team_context": {"velocity_mean": 30, "velocity_variance": 25, "closed_sprints": 10},
+        # A project with sprint history supplies its own team context.
+        "team_context": None if project else {"velocity_mean": 30, "velocity_variance": 25, "closed_sprints": 10},
     }
 
 
@@ -56,6 +57,8 @@ def main() -> None:
     parser.add_argument("--users", type=int, default=10)
     parser.add_argument("--requests", type=int, default=10)
     parser.add_argument("--stories", type=int, default=50)
+    parser.add_argument("--project", help="every user estimates for this project (e.g. one with sprint history); "
+                                          "default: a project of its own without history")
     parser.add_argument("--allow-hosted-database", action="store_true",
                         help="run even though the service records into the hosted database")
     args = parser.parse_args()
@@ -69,7 +72,7 @@ def main() -> None:
     start_together = threading.Barrier(args.users)
 
     def user(number: int) -> None:
-        payload = backlog(args.stories, number)
+        payload = backlog(args.stories, number, args.project)
         post(args.url, payload)  # warm-up
         start_together.wait()
         for _ in range(args.requests):

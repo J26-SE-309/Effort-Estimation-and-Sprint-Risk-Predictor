@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, func, select
 
 from app import backup, db, store
 from app.config import Settings
-from app.tables import Base, FeedbackRecord, PinnedConfiguration, PredictionRecord
+from app.tables import Base, FeedbackRecord, OutcomeRecord, PinnedConfiguration, PredictionRecord
 
 
 def _story(story_id: str) -> dict:
@@ -49,10 +49,14 @@ def test_migrations_build_exactly_the_tables_the_service_uses(fresh_database):
 
 
 def test_tables_created_before_migrations_are_adopted_not_created_again(fresh_database):
-    Base.metadata.create_all(fresh_database)  # how the service made its tables before it had migrations
-    assert store.migrate()
+    # How the service made its tables before it had migrations: the four of the first revision.
+    original = [PredictionRecord, FeedbackRecord, OutcomeRecord, PinnedConfiguration]
+    Base.metadata.create_all(fresh_database, tables=[table.__table__ for table in original])
+    assert store.migrate()  # adopted as the first revision, then migrated on
     with fresh_database.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() is not None
+        head = ScriptDirectory(str(store.MIGRATIONS)).get_current_head()
+        assert MigrationContext.configure(connection).get_current_revision() == head
+        assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
 
 
 def test_the_audit_record_is_written_after_the_response(client):
@@ -71,7 +75,7 @@ def test_backup_and_restore_give_back_every_row(client, tmp_path):
 
     path, counts = backup.backup(tmp_path)
     assert counts == {"prediction_records": 2, "feedback_records": 1, "outcome_records": 0,
-                      "pinned_configurations": 1}
+                      "pinned_configurations": 1, "history_sprints": 0, "history_items": 0}
     with gzip.open(path, "rt", encoding="utf-8") as lines:
         assert json.loads(next(lines))["revision"] == ScriptDirectory(str(store.MIGRATIONS)).get_current_head()
 

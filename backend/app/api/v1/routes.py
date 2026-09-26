@@ -1,4 +1,5 @@
-"""Version 1 of the prediction API (proposal Figure 2: /estimate, /risk, /recommend, /models, /compare).
+"""Version 1 of the prediction API (proposal Figure 2: /estimate, /risk, /recommend, /models, /compare), plus
+pinning, feedback and outcomes, and the projects' sprint history.
 
 Predictions come from the Comparative Model Arena's configurations (ml-engine/models/arena-v1) through the
 prediction engine in ml-engine (erp.serving): the router picks the configuration (FR11) unless the product owner
@@ -11,9 +12,10 @@ await): a busy worker process then accepts no new connection, and the kernel han
 concurrent requests and the others idled (NFR1 missed: p95 2.3 s with 4 workers on Linux).
 """
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+from sqlalchemy.exc import SQLAlchemyError
 
-from app import store
+from app import history, store
 from app.prediction import engine_arguments, get_engine
 from app.schemas import (
     CompareRequest,
@@ -21,6 +23,8 @@ from app.schemas import (
     EstimateRequest,
     EstimateResponse,
     Feedback,
+    HistoryImport,
+    HistorySummary,
     ModelConfiguration,
     ModelsResponse,
     ModelSummary,
@@ -166,3 +170,43 @@ def outcome(request: Outcome) -> Recorded:
     _known(request.prediction_id)
     record_id, recorded = store.record_outcome(request.model_dump())
     return Recorded(id=record_id, recorded=recorded)
+
+
+# ------------------------------------------------------------------ sprint history (FR5)
+
+CSV_BODY = {"requestBody": {"required": True, "content": {"text/csv": {"schema": {"type": "string"}, "example": (
+    "sprint_id,sprint_name,sprint_started_at,sprint_planned_end,sprint_closed_at,story_id,committed_at,"
+    "points_at_commit,points_at_close,done_in_sprint,spilled_over\n"
+    "S1,Sprint 1,2026-08-03T09:00:00Z,2026-08-17T09:00:00Z,2026-08-17T16:00:00Z,ST-1,2026-08-03T09:00:00Z,3,3,"
+    "true,false\n")}}}}
+
+
+@router.get("/projects/{project_id}/history", response_model=HistorySummary)
+def get_history(project_id: str) -> dict:
+    """What the models see about the project's team now: velocity, spillover and reopen rates, cycle time, whether
+    it is still a cold start, and its sprints (newest first)."""
+    return history.summary(project_id)
+
+
+@router.post("/projects/{project_id}/history", response_model=HistoryImport, openapi_extra=CSV_BODY)
+async def import_history(project_id: str, request: Request) -> HistoryImport:
+    """Import the project's sprint history from a CSV (one row per story per sprint; the columns are in the
+    README). It replaces the project's records. Until the platform serves its sprints, this is how records arrive.
+    """
+    if request.headers.get("content-type", "").split(";")[0].strip() != "text/csv":
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Send the CSV as text/csv")
+    try:
+        text = (await request.body()).decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The CSV must be UTF-8 text") from error
+    sprints, items, problems = history.parse_csv(text)
+    if problems:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {
+            "message": f"{len(problems)} problem(s); nothing was imported", "problems": problems[:100]})
+    try:
+        counts = history.replace(project_id, sprints, items, "imported")
+    except SQLAlchemyError as error:
+        store.note_failure(error)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The database is unavailable; nothing was imported") \
+            from error
+    return HistoryImport(project_id=project_id, source="imported", **counts)

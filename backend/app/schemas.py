@@ -138,7 +138,8 @@ class Prediction(BaseModel):
     configuration_id: str = ""
     selection_reason: str = ""
     degraded_feature_groups: list[str] = Field(default=[], description="Groups served by a proxy or missing (FR17)")
-    feature_sources: dict[str, str] = Field(default={}, description="component, request, text, proxy or missing")
+    feature_sources: dict[str, str] = Field(default={}, description="component, request, history, text, proxy or "
+                                                                   "missing")
     explanation_method: str = ""
 
 
@@ -249,3 +250,39 @@ class Outcome(BaseModel):
 class Recorded(BaseModel):
     id: str
     recorded: bool = Field(description="False when the database is unavailable; nothing was stored")
+
+
+# ---------------------------------------------------------------------------------------------- sprint history
+
+
+class HistorySprint(BaseModel):
+    sprint_id: str
+    name: str | None = None
+    started_at: datetime
+    planned_end: datetime
+    closed_at: datetime | None = Field(default=None, description="Empty while the sprint runs")
+    stories: int
+    committed_points: float = Field(description="Points of its stories when committed")
+    completed_points: float | None = Field(default=None, description="Points finished in it, once closed (velocity)")
+    spilled_over: int | None = Field(default=None, description="Stories not done by its end, once closed (R1)")
+
+
+class HistorySummary(BaseModel):
+    """What the models see about a project's team now (FR5), and its sprints, newest first."""
+
+    project_id: str
+    as_of: datetime
+    sources: list[str] = Field(description="Where the records came from: imported, tawos or synthetic")
+    closed_sprints: int
+    cold_start: bool = Field(description="Fewer closed sprints than the models need to trust the team history")
+    sprints_needed: int = Field(description="Closed sprints still needed to leave the cold start")
+    team_context: TeamContext
+    sprints: list[HistorySprint]
+
+
+class HistoryImport(BaseModel):
+    project_id: str
+    source: str
+    sprints: int
+    stories: int
+    rows: int
