@@ -9,8 +9,9 @@ from the others by erp-arena-report):
   2. Train the best settings on the whole training split. Boosters and networks stop early on the calibration
      split, as in Phases 2 and 3.
   3. Fit the C2 intervals (effort) and the C1 calibrator and the risk threshold on the calibration split.
-  4. Save the configuration to ml-engine/models/arena-v1/<id>/, reload it from disk, check that it reproduces
-     every prediction exactly, and time a 50-story backlog on the CPU, encoding included (NFR1).
+  4. Save the configuration to ml-engine/models/arena-v1/<id>/, reload it from disk and check that it
+     reproduces every prediction exactly. The 50-story latency (NFR1) is timed by erp-arena-report, for all
+     configurations one after another on an otherwise idle machine, so parallel training runs cannot skew it.
 The predictions, the inner-fold predictions (for the stack) and every Optuna trial go to
 Datasets/effort-risk/arena/arena-v1/, because they are data about TAWOS stories.
 
@@ -224,7 +225,7 @@ def verify(directory: Path, arena: ArenaData, full_text: np.ndarray, log_points,
     if not (np.array_equal(again_log, log_points) and np.array_equal(again_raw, raw)):
         raise AssertionError(f"{directory.name}: the reloaded model does not reproduce its predictions")
     return {"round_trip": "identical predictions for all stories after reloading from disk",
-            "latency": latency(loaded, arena.frame[arena.mask("test")]), "size_mb": directory_size(directory)}
+            "size_mb": directory_size(directory)}
 
 
 def run_single(config: Config, arena: ArenaData, trials: int) -> None:
@@ -289,8 +290,7 @@ def write(config, arena, manifest, models, log_points, raw, fold_outputs, full_t
     save_predictions(config, arena, log_points, raw, fold_outputs)
     manifest["check"] = verify(directory, arena, full_text, log_points, raw)
     path.write_text(json.dumps(manifest, indent=1, default=str), encoding="utf-8")
-    log(f"{config.id}: saved to {directory} ({manifest['check']['size_mb']} MB, 50 stories in "
-        f"{manifest['check']['latency']['p95_seconds']:.3f} s at p95)")
+    log(f"{config.id}: saved to {directory} ({manifest['check']['size_mb']} MB), reload check passed")
 
 
 def main(argv: list[str] | None = None) -> None:
