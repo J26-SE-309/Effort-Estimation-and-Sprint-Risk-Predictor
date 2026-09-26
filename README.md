@@ -93,7 +93,9 @@ AgilePlatform/
 │   └── effort-risk/
 │       ├── tawos-raw/           # every TAWOS table as Parquet, plus _manifest.json
 │       ├── interim/             # derived tables: sprint timelines, snapshot, labels, features
-│       └── review/              # the 200-story label-check workbooks (not in git)
+│       ├── review/              # the 200-story label-check workbooks (not in git)
+│       ├── embeddings/          # cached SBERT embeddings, keyed by a hash of the story text
+│       └── models/              # downloaded encoders and trained models
 └── Effort-Estimation-and-Sprint-Risk-Predictor/   # this repository
 ```
 
@@ -151,12 +153,23 @@ AgilePlatform/
    .venv\Scripts\erp-build-features
    ```
 
+9. Train the first models (ML guide Phase 2): baselines, then SBERT + LightGBM for effort (M1) and risk (M2)
+   on a time-ordered split. The first run downloads the SBERT model (about 90 MB) into
+   `Datasets/effort-risk/models/` and caches every story's embedding in `Datasets/effort-risk/embeddings/`:
+
+   ```powershell
+   .venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cpu
+   .venv\Scripts\pip install -e "ml-engine[encoders]"
+   .venv\Scripts\erp-train-first
+   ```
+
 Each step writes a report to [`ml-engine/reports/`](ml-engine/reports/):
 [`tawos-profile.md`](ml-engine/reports/tawos-profile.md) (what TAWOS contains),
 [`sprint-timeline.md`](ml-engine/reports/sprint-timeline.md) (sprint histories, the clock check behind their
 tolerance, worked examples), [`snapshot.md`](ml-engine/reports/snapshot.md) (the filtering log and the
 training rows), [`labels.md`](ml-engine/reports/labels.md) (how often each warning sign fires) and
-[`features.md`](ml-engine/reports/features.md) (every feature, its meaning and why it was known at commitment).
+[`features.md`](ml-engine/reports/features.md) (every feature, its meaning and why it was known at commitment) and
+[`first-models.md`](ml-engine/reports/first-models.md) (baselines and the first M1 and M2 results).
 
 ## Synapse Platform Services
 

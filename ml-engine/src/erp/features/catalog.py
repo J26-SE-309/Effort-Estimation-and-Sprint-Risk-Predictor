@@ -74,9 +74,10 @@ FEATURES = [
     Feature("days_into_sprint", "sprint", "Days after the start when the story was added (0 if planned)",
             "The moment of commitment"),
     Feature("parallel_sprints", "sprint", "Other sprints of the project running at the time", "Sprint dates"),
-    Feature("sprint_committed_points", "sprint", "Points committed to the sprint at that moment (this story "
-            "included)", "Members and their points at the snapshot time"),
-    Feature("commitment_to_velocity_ratio", "sprint", "Committed points / team_velocity_rolling",
+    Feature("sprint_committed_points", "sprint", "Points the other stories of the sprint were committed with at "
+            "that moment (this story's own points left out, so M1 cannot read its answer here)",
+            "Members and their points at the snapshot time"),
+    Feature("commitment_to_velocity_ratio", "sprint", "sprint_committed_points / team_velocity_rolling",
             "Both known at the snapshot time"),
     Feature("wip_at_commitment", "sprint", "Other issues of the sprint already in progress",
             "Their status and resolution at the snapshot time"),

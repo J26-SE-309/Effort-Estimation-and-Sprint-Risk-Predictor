@@ -14,10 +14,15 @@ dependencies = [
   "pymysql>=1.1",
   "cryptography>=42", # MySQL 8 caching_sha2_password authentication
   "openpyxl>=3.1", # the review workbooks
+  "scikit-learn>=1.5",
+  "lightgbm>=4.7", # eval_X / eval_y
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Text encoders that download pre-trained models (E3 SBERT; later E4). Install the CPU build of torch first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+encoders = ["sentence-transformers>=3", "torch>=2.4"]
 
 [project.scripts]
 erp-export-tawos = "erp.extract.tawos_to_parquet:main"
@@ -27,6 +32,7 @@ erp-build-snapshot = "erp.snapshot.build_snapshot:main"
 erp-build-labels = "erp.labels.build_labels:main"
 erp-review-sample = "erp.labels.review:main"
 erp-build-features = "erp.features.build_features:main"
+erp-train-first = "erp.models.first_models:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]

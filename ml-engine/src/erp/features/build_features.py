@@ -137,9 +137,9 @@ def sprint_features(stories: pd.DataFrame, outcomes: pd.DataFrame, issues: pd.Da
     pairs = stories[["Sprint_ID", "snapshot_time"]].reset_index().merge(members, on="Sprint_ID")
     present = pairs[(pairs["commitment_time"] <= pairs["snapshot_time"])
                     & (pairs["last_left"].isna() | (pairs["last_left"] > pairs["snapshot_time"]))]
-    committed_points = present.groupby("Issue_ID")["points_at_commit"].sum().reindex(stories.index)
-
+    # Other stories only: the story's own points are M1's answer, so they must not hide inside a feature.
     others = present[present["member"] != present["Issue_ID"]].reset_index(drop=True)
+    committed_points = others.groupby("Issue_ID")["points_at_commit"].sum().reindex(stories.index, fill_value=0)
     moments = pd.DataFrame({"Issue_ID": others["member"], "at": others["snapshot_time"]})
     member_ids = others["member"].unique().tolist()
     status = history.values_at(load_log("status", member_ids), moments, issues["Status"])
