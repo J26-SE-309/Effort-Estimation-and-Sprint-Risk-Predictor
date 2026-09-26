@@ -5,6 +5,10 @@ Run against a running service (docker compose up, or uvicorn):
     python loadtest.py --url http://host:8004 --users 10 --requests 20 --stories 50
 Every user sends its backlog again as soon as the previous answer arrives; the report gives the response-time
 percentiles over all requests (after one warm-up request per user).
+
+Every prediction is written to the service's audit log (about 2.3 KB a story; the default run adds 5,500 rows), so
+the test refuses to run against a service using the hosted database (Neon's free plan holds 0.5 GB) unless told
+to: run the service on the local database, e.g. with DATABASE_URL set to the local effort-db.
 """
 
 import argparse
@@ -41,13 +45,24 @@ def post(url: str, payload: dict) -> float:
     return time.perf_counter() - started
 
 
+def database_location(url: str) -> str:
+    with urllib.request.urlopen(f"{url}/health", timeout=30) as response:
+        return json.loads(response.read()).get("database_location", "local")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--url", default="http://127.0.0.1:8004")
     parser.add_argument("--users", type=int, default=10)
     parser.add_argument("--requests", type=int, default=10)
     parser.add_argument("--stories", type=int, default=50)
+    parser.add_argument("--allow-hosted-database", action="store_true",
+                        help="run even though the service records into the hosted database")
     args = parser.parse_args()
+    if database_location(args.url) == "hosted" and not args.allow_hosted_database:
+        rows = args.users * (args.requests + 1) * args.stories
+        raise SystemExit(f"The service records into the hosted database: this run would add {rows:,} audit rows "
+                         "(~2.3 KB each). Point the service at the local database, or pass --allow-hosted-database.")
 
     times: list[float] = []
     lock = threading.Lock()

@@ -11,7 +11,7 @@ await): a busy worker process then accepts no new connection, and the kernel han
 concurrent requests and the others idled (NFR1 missed: p95 2.3 s with 4 workers on Linux).
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from app import store
 from app.prediction import engine_arguments, get_engine
@@ -41,7 +41,7 @@ def _pinned(request: EstimateRequest) -> str | None:
     return request.pinned_configuration or store.get_pin(request.project_id)[0]
 
 
-def _run(request: EstimateRequest, sprint_level: bool = False) -> dict:
+def _run(request: EstimateRequest, background: BackgroundTasks, sprint_level: bool = False) -> dict:
     engine = get_engine()
     method = engine.sprint_risk if sprint_level else engine.estimate
     try:
@@ -49,29 +49,32 @@ def _run(request: EstimateRequest, sprint_level: bool = False) -> dict:
     except KeyError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error.args[0])) from error
     features = result.pop("features")
-    store.record_predictions(request.project_id, request.sprint_id, result["predictions"], features)
+    store.assign_ids(result["predictions"])
+    # The audit log (FR21) is written once the response is on its way: a hosted database is a network away.
+    background.add_task(store.record_predictions, request.project_id, request.sprint_id, result["predictions"],
+                        features)
     return result
 
 
 @router.post("/estimate", response_model=EstimateResponse)
-async def estimate(request: EstimateRequest) -> dict:
+async def estimate(request: EstimateRequest, background: BackgroundTasks) -> dict:
     """Estimate effort and sprint risk for every story in a backlog, in the order given."""
-    return _run(request)
+    return _run(request, background)
 
 
 @router.post("/risk", response_model=SprintRiskResponse)
-async def sprint_risk(request: EstimateRequest) -> dict:
+async def sprint_risk(request: EstimateRequest, background: BackgroundTasks) -> dict:
     """Sprint-level risk of committing to this backlog (FR16, Monte Carlo), with the story predictions.
 
     Over-commitment needs the team's capacity: sprint_context.capacity_points or team_context.velocity_mean.
     """
-    return _run(request, sprint_level=True)
+    return _run(request, background, sprint_level=True)
 
 
 @router.post("/recommend", response_model=RecommendResponse)
-async def recommend(request: EstimateRequest) -> dict:
+async def recommend(request: EstimateRequest, background: BackgroundTasks) -> dict:
     """Planning recommendations for a backlog (FR15): per story, and for the sprint as a whole."""
-    result = _run(request, sprint_level=True)
+    result = _run(request, background, sprint_level=True)
     return {
         "stories": [StoryRecommendations(**{k: p[k] for k in StoryRecommendations.model_fields})
                     for p in result["predictions"]],

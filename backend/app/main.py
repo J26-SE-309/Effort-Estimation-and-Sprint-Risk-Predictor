@@ -17,13 +17,13 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the models once, before the first request (NFR1), and create the tables if the database is up."""
+    """Load the models once, before the first request (NFR1), and migrate the database if it is up."""
     try:
         get_engine()
     except Exception as error:  # the service still starts; /estimate answers 503 until models are present
         log.error("prediction engine not loaded: %s", error)
     if db.database_ok():
-        store.create_tables()
+        store.migrate()
     yield
 
 

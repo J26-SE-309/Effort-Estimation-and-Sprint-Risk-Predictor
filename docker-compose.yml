@@ -34,8 +34,12 @@ services:
       args:
         # true also serves the SBERT configurations, M3 and the stack (CPU torch and the SBERT model, ~1.5 GB).
         WITH_TORCH: ${EFFORT_WITH_TORCH:-false}
+    # The hosted database (Neon) when backend/.env names one in DATABASE_URL; otherwise effort-db below.
+    env_file:
+      - path: backend/.env
+        required: false
     environment:
-      DATABASE_URL: postgresql+psycopg://effort_user:${EFFORT_DB_PASSWORD:-effort-local}@effort-db:5432/effort_db
+      LOCAL_DATABASE_URL: postgresql+psycopg://effort_user:${EFFORT_DB_PASSWORD:-effort-local}@effort-db:5432/effort_db
     ports:
       - "127.0.0.1:8004:8004"
     # NFR12: inference within 4 GB of memory on a CPU.

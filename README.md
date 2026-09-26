@@ -55,7 +55,8 @@ Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the r
    .venv\Scripts\python -m pip install -e "ml-engine[dev,serving]" -e "backend[dev]"
    ```
 
-2. Start this component's database, then run the API with auto-reload:
+2. Start this component's local database (skip it when `backend/.env` names the hosted one; see
+   [Database](#database)), then run the API with auto-reload:
 
    ```powershell
    docker compose up -d effort-db
@@ -82,13 +83,32 @@ after the CPU build of torch.
 
 ### Database
 
-This component has its own PostgreSQL database and account. No other component connects to it.
+This component has its own PostgreSQL database and account. No other component connects to it. It holds the
+prediction audit log (FR21: IDs, the model and version, the feature values and the answer; no story text),
+feedback and outcomes (FR19) and pinned configurations (FR12).
 
-| Setting | Local value |
-|---|---|
-| Host and port | `localhost:5444` |
-| Database | `effort_db` |
-| User / password | `effort_user` / `effort-local` |
+- **Hosted (the real data): Neon**, region Singapore. Put its direct connection string (host without
+  `-pooler`) in `backend/.env` as `DATABASE_URL=postgresql://...`, as Neon gives it (see `backend/.env.example`).
+  `.env` is never committed. Both `uvicorn` and `docker compose up` then use it.
+- **Local (development): the `effort-db` container**, used when `backend/.env` has no `DATABASE_URL`:
+
+  | Setting | Local value |
+  |---|---|
+  | Host and port | `localhost:5444` |
+  | Database | `effort_db` |
+  | User / password | `effort_user` / `effort-local` |
+
+- **Tests** use an in-memory SQLite database and never touch either.
+
+The service applies the migrations in `backend/app/migrations` (Alembic) at start-up. After changing
+`app/tables.py`, add a migration against the local database: `cd backend; alembic revision --autogenerate -m
+"what changed"`, then check the generated file.
+
+Neon's free plan keeps 6 hours of history, and the feedback and outcomes are evaluation data, so back them up
+regularly: `cd backend; python -m app.backup` writes every table to
+`Datasets/effort-risk/backups/effort-db-<time>.jsonl.gz`, and `python -m app.backup --restore FILE` restores one
+into an empty database. The health check does not query a hosted database: the web app polls health every 15 s,
+which would otherwise keep Neon from ever suspending (100 compute-hours a month on the free plan).
 
 ### API contract
 
@@ -108,7 +128,10 @@ once at start-up.
 NFR1 load test against a running service (10 users, each sending 50-story backlogs back to back):
 `python backend/loadtest.py`. In the container (`docker compose up`: 4 worker processes with one native thread
 each, `WEB_CONCURRENCY` and `OMP_NUM_THREADS`), the 95th percentile was 0.53 s over 200 requests, using about
-900 MB of memory; one 50-story request alone takes 0.16 s. Explanations cost the most for TF-IDF + SVR / SVM
+900 MB of memory; one 50-story request alone takes 0.16 s. With the hosted database it was 0.56 s: the audit log
+is written after the response is sent and pins are cached for 10 s, so predictions do not wait for the database.
+Every prediction is recorded, so the load test refuses to run against a service using the hosted database; run
+it with the local one. Explanations cost the most for TF-IDF + SVR / SVM
 (about 2 s per 50 stories, feature-group occlusion over an expensive kernel model); the router never picks it
 for a live project, but a pinned SVR / SVM will miss NFR1.
 
