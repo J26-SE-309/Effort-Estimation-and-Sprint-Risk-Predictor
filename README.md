@@ -27,7 +27,13 @@ Effort-Estimation-and-Sprint-Risk-Predictor/
 │   ├── src/erp/
 │   │   ├── extract/     # TAWOS MySQL -> Parquet
 │   │   ├── explore/     # data profiling
+│   │   ├── snapshot/    # sprint timelines and the point-in-time snapshot
+│   │   ├── labels/      # risk rules R1-R6 and the 200-story review sample
+│   │   ├── features/    # the feature catalogue and its computation
+│   │   ├── models/      # encoders, learners, M3, calibration (C1, C2), explanations, metrics
+│   │   ├── arena/       # Phase 4: the Comparative Model Arena, stack, leaderboard, H1 / H2
 │   │   └── tawos.py     # loading the exported tables, decoding TAWOS fields
+│   ├── models/          # trained models, committed (LightGBM text, JSON, safetensors, skops; no pickles)
 │   ├── reports/         # generated reports (e.g. tawos-profile.md)
 │   └── tests/
 └── docker-compose.yml   # effort-db + effort-api, and tawos-mysql for the one-off TAWOS import
@@ -94,7 +100,10 @@ AgilePlatform/
 │       ├── tawos-raw/           # every TAWOS table as Parquet, plus _manifest.json
 │       ├── interim/             # derived tables: sprint timelines, snapshot, labels, features
 │       ├── review/              # the 200-story label-check workbooks (not in git)
-│       └── embeddings/          # cached SBERT embeddings, keyed by a hash of the story text
+│       ├── embeddings/          # cached SBERT embeddings, keyed by a hash of the story text
+│       ├── arena/arena-v1/      # encoded text per fold, predictions, inner-fold predictions, Optuna trials
+│       ├── mlflow/              # MLflow experiment tracking (mlflow.db)
+│       └── logs/                # logs of long runs
 └── Effort-Estimation-and-Sprint-Risk-Predictor/   # this repository
 ```
 
@@ -172,6 +181,38 @@ AgilePlatform/
     .venv\Scripts\erp-train-bundle
     ```
 
+11. Run the Comparative Model Arena (Phase 4): every Appendix D configuration (TF-IDF + Random Forest,
+    TF-IDF + SVR / SVM, FastText + LightGBM, SBERT + XGBoost / LightGBM / CatBoost, SBERT + multi-task MLP M3)
+    tuned with Optuna on time-ordered folds inside the training split, trained, calibrated (C1, C2) and saved
+    to [`ml-engine/models/arena-v1/`](ml-engine/models/). About three hours on a laptop CPU; `--configs`
+    runs a subset, and a second process can train `tfidf-svm` (single-threaded) at the same time after
+    `--prepare` has fitted the text encoders:
+
+    ```powershell
+    .venv\Scripts\pip install -e "ml-engine[encoders,arena]"
+    .venv\Scripts\erp-train-arena --prepare
+    .venv\Scripts\erp-train-arena
+    ```
+
+12. Fine-tune DistilBERT (E4) on a CUDA GPU in a separate environment with the CUDA build of torch, then
+    finish it on the CPU (predictions, C1, C2):
+
+    ```powershell
+    python -m venv .venv-gpu
+    .venv-gpu\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cu130
+    .venv-gpu\Scripts\pip install -e ml-engine transformers safetensors
+    .venv-gpu\Scripts\python -m erp.arena.distilbert
+    .venv\Scripts\python -m erp.arena.distilbert --finish
+    ```
+
+13. Build the stacked ensemble, the leaderboard the router reads (`ml-engine/models/arena-v1/leaderboard.json`)
+    and the arena report, then run the H1 and H2 experiments:
+
+    ```powershell
+    .venv\Scripts\erp-arena-report
+    .venv\Scripts\erp-run-hypotheses
+    ```
+
 Each step writes a report to [`ml-engine/reports/`](ml-engine/reports/):
 [`tawos-profile.md`](ml-engine/reports/tawos-profile.md) (what TAWOS contains),
 [`sprint-timeline.md`](ml-engine/reports/sprint-timeline.md) (sprint histories, the clock check behind their
@@ -179,7 +220,9 @@ tolerance, worked examples), [`snapshot.md`](ml-engine/reports/snapshot.md) (the
 training rows), [`labels.md`](ml-engine/reports/labels.md) (how often each warning sign fires) and
 [`features.md`](ml-engine/reports/features.md) (every feature, its meaning and why it was known at commitment),
 [`first-models.md`](ml-engine/reports/first-models.md) (baselines and the first M1 and M2 results) and
-[`uncertainty-and-explanations.md`](ml-engine/reports/uncertainty-and-explanations.md) (calibration, interval coverage and explanations of the bundle).
+[`uncertainty-and-explanations.md`](ml-engine/reports/uncertainty-and-explanations.md) (calibration, interval coverage and explanations of the bundle),
+[`arena.md`](ml-engine/reports/arena.md) (the leaderboard, significance tests and NFR checks) and
+[`hypotheses.md`](ml-engine/reports/hypotheses.md) (H1: joint learning; H2: the upstream quality signals).
 
 ## Synapse Platform Services
 

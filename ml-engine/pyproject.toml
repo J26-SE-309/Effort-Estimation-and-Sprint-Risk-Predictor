@@ -38,6 +38,8 @@ erp-build-features = "erp.features.build_features:main"
 erp-train-first = "erp.models.first_models:main"
 erp-train-bundle = "erp.models.train_bundle:main"
 erp-train-arena = "erp.arena.train:main"
+erp-arena-report = "erp.arena.report:main"
+erp-run-hypotheses = "erp.arena.hypotheses:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]

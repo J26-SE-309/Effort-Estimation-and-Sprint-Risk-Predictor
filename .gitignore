@@ -1,6 +1,6 @@
 # Only generated and heavy files are ignored: source code, configuration and docs are always committed.
 # Data lives in AgilePlatform/Datasets, next to the repositories. Trained models are committed under
-# ml-engine/models/ as LightGBM text files plus JSON (small, no pickles); heavy weight formats stay ignored.
+# ml-engine/models/ in formats that cannot run code when loaded (no pickles); weight files elsewhere stay ignored.
 
 # Secrets: commit .env.example, never .env
 .env
@@ -11,6 +11,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 venv/
 *.egg-info/
 .pytest_cache/
@@ -43,6 +44,10 @@ mlruns/
 *.h5
 *.joblib
 *.pkl
+# ...except our own trained models (M3 is a few hundred kB of safetensors)
+!ml-engine/models/**/*.safetensors
+# Fine-tuned DistilBERT is about 135 MB per task, over GitHub's 100 MB file limit: kept out of git for now
+ml-engine/models/**/distilbert/*.safetensors
 
 # Editors and operating systems
 .idea/

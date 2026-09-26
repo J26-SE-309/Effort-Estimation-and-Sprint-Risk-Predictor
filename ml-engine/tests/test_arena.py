@@ -133,3 +133,26 @@ def test_holm_and_vargha_delaney():
 
     result = metrics.paired_bootstrap(roc_auc_score, y, good, bad, runs=200)
     assert result["difference"] > 0.2 and result["low"] > 0 and result["p"] < 0.01
+
+
+def test_stack_blends_effort_and_combines_risk_logits():
+    from erp.arena.predictor import combine
+
+    manifest = {"effort": {"bases": ["a", "b"], "meta": {"weights": [0.25, 0.75], "intercept": 0.1}},
+                "risk": {"bases": ["b"], "meta": {"weights": [2.0], "intercept": 0.0}}}
+    outputs = {"a": (np.array([1.0]), np.array([0.3])), "b": (np.array([2.0]), np.array([0.5]))}
+    log_points, risk = combine(manifest, outputs)
+    assert log_points[0] == pytest.approx(0.1 + 0.25 * 1.0 + 0.75 * 2.0)
+    assert risk[0] == pytest.approx(0.5)  # logit(0.5) = 0, so the combined logit is the intercept
+
+
+def test_router_score_and_hard_requirements():
+    from erp.arena import report
+
+    row = {"sa": 30.0, "f1": 0.7, "ece": 0.03, "latency_p95": 1.0, "coverage_0.8": 0.81, "coverage_0.9": 0.9}
+    assert report.composite(row, report.WEIGHTS) == pytest.approx(
+        0.35 * 0.30 + 0.25 * 0.7 + 0.25 * 0.97 + 0.15 * 0.5)
+    assert report.failed_requirements(row) == []
+    slow = {**row, "latency_p95": 2.5, "ece": 0.12, "coverage_0.8": 0.70}
+    assert report.failed_requirements(slow) == ["NFR1 latency", "NFR3 ECE", "NFR3 80% coverage"]
+    assert report.winner({"a": 0.6, "b": 0.7}, eligible={"a"}) == "a"

@@ -118,5 +118,11 @@ def finish(log_points, raw, intervals, calibrator, threshold, bands, index) -> p
 
 
 def load(directory: Path):
-    manifest = json.loads((directory / MANIFEST).read_text(encoding="utf-8"))
-    return StackPredictor(directory) if manifest["config"]["learner"] == "stack" else Predictor(directory)
+    learner = json.loads((directory / MANIFEST).read_text(encoding="utf-8"))["config"]["learner"]
+    if learner == "stack":
+        return StackPredictor(directory)
+    if learner == "distilbert":
+        from erp.arena.distilbert import DistilBertPredictor
+
+        return DistilBertPredictor(directory)
+    return Predictor(directory)
