@@ -1,0 +1,14 @@
+# Build context of backend/Dockerfile (the repository root): only what the service needs.
+**/.venv
+**/.venv-*
+**/.env
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+.git
+.github
+backend/tests
+ml-engine/tests
+ml-engine/reports
+ml-engine/models/sbert-lightgbm-v1
+ml-engine/models/**/distilbert/*.safetensors

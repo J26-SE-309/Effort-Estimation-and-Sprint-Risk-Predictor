@@ -1,0 +1,76 @@
+# Effort Estimation and Sprint Risk Predictor: the API service, its own database, and the
+# MySQL instance used once to restore the TAWOS dump for the ML pipeline.
+#
+#   docker compose up --build               effort-db + effort-api
+#   docker compose up -d tawos-mysql        only when (re)importing TAWOS (profile "ml")
+#
+# Also started as part of the whole platform from AgilePlatform/docker-compose.yml.
+# Data never lives in this repository: the TAWOS dump is read from ${ERP_DATA_DIR}/TAWOS
+# (default: the Datasets folder next to the repositories).
+name: effort-estimation
+
+services:
+  effort-db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: effort_db
+      POSTGRES_USER: effort_user
+      POSTGRES_PASSWORD: ${EFFORT_DB_PASSWORD:-effort-local}
+    ports:
+      - "127.0.0.1:5444:5432"
+    volumes:
+      - effort-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U effort_user -d effort_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  effort-api:
+    # Built from the repository root: the service needs ml-engine/ (the prediction engine and the trained models).
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        # true also serves the SBERT configurations, M3 and the stack (CPU torch and the SBERT model, ~1.5 GB).
+        WITH_TORCH: ${EFFORT_WITH_TORCH:-false}
+    environment:
+      DATABASE_URL: postgresql+psycopg://effort_user:${EFFORT_DB_PASSWORD:-effort-local}@effort-db:5432/effort_db
+    ports:
+      - "127.0.0.1:8004:8004"
+    # NFR12: inference within 4 GB of memory on a CPU.
+    mem_limit: 4g
+    depends_on:
+      effort-db:
+        condition: service_healthy
+
+  tawos-mysql:
+    image: mysql:8.4
+    container_name: tawos-mysql
+    profiles: ["ml"]
+    environment:
+      # Local-only database holding a public research dataset; bound to 127.0.0.1 below.
+      MYSQL_ROOT_PASSWORD: ${TAWOS_MYSQL_PASSWORD:-tawos-local}
+      MYSQL_DATABASE: tawos
+    command:
+      # Tuned for a one-off bulk import, not for durability.
+      - --innodb-buffer-pool-size=2G
+      - --innodb-redo-log-capacity=2G
+      - --innodb-flush-log-at-trx-commit=0
+      - --innodb-doublewrite=OFF
+      - --skip-log-bin
+      - --max-allowed-packet=1G
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - tawos-mysql-data:/var/lib/mysql
+      - ${ERP_DATA_DIR:-../Datasets}/TAWOS:/import:ro
+
+volumes:
+  # Fixed names keep the data whether this file runs alone or from AgilePlatform/docker-compose.yml.
+  effort-db-data:
+    name: effort-db-data
+  tawos-mysql-data:
+    name: effort-risk_tawos-mysql-data

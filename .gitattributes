@@ -1,0 +1,9 @@
+# Trained models are stored byte for byte as written (no line-ending conversion on Windows).
+# Model files are not diffed line by line; the JSON manifests stay readable in diffs.
+ml-engine/models/**/*.txt binary
+ml-engine/models/**/*.npy binary
+ml-engine/models/**/*.ubj binary
+ml-engine/models/**/*.cbm binary
+ml-engine/models/**/*.skops binary
+ml-engine/models/**/*.safetensors binary
+ml-engine/models/**/*.json -text

@@ -1,0 +1,22 @@
+{
+ "name": "fasttext",
+ "params": {
+  "vector_size": 100,
+  "window": 5,
+  "min_count": 2,
+  "sg": 1,
+  "epochs": 10,
+  "bucket": 100000,
+  "min_n": 3,
+  "max_n": 6,
+  "seed": 42,
+  "workers": 1
+ },
+ "text": "title + '. ' + description_text (code removed); lower-cased word tokens",
+ "files": [
+  "fasttext-words.json",
+  "fasttext-vectors.npy",
+  "fasttext-ngrams.npy"
+ ],
+ "fitted_on": "57059e83ef67ded95b9fbacd25611ac3af4cbddd"
+}

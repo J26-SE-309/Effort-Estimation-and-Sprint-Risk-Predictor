@@ -1,0 +1,21 @@
+{
+ "name": "tfidf",
+ "params": {
+  "ngram_range": [
+   1,
+   2
+  ],
+  "sublinear_tf": true,
+  "max_features": 10000,
+  "min_df": 2,
+  "svd": 300,
+  "seed": 42
+ },
+ "text": "title + '. ' + description_text (code removed); lower-cased words and word pairs",
+ "files": [
+  "tfidf-vocabulary.json",
+  "tfidf-idf.npy",
+  "tfidf-svd.npy"
+ ],
+ "fitted_on": "57059e83ef67ded95b9fbacd25611ac3af4cbddd"
+}
