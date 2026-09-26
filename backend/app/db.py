@@ -1,9 +1,10 @@
-"""Access to this component's own PostgreSQL database."""
+"""Access to this component's own PostgreSQL database (SQLite in the tests)."""
 
 from collections.abc import Iterator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
 
@@ -12,7 +13,13 @@ class Base(DeclarativeBase):
     """Base class for this service's tables."""
 
 
-engine = create_engine(get_settings().database_url, pool_pre_ping=True, connect_args={"connect_timeout": 2})
+def _engine(url: str):
+    if url.startswith("sqlite"):  # the tests: one in-memory database shared by every session
+        return create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    return create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 2})
+
+
+engine = _engine(get_settings().database_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
 
 

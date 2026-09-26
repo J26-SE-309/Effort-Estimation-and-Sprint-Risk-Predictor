@@ -16,11 +16,14 @@ Scope, methodology, datasets and models will be documented here as the research 
 Effort-Estimation-and-Sprint-Risk-Predictor/
 ├── backend/             # FastAPI prediction service the platform calls (port 8004)
 │   ├── app/
-│   │   ├── main.py      # app setup and /health
+│   │   ├── main.py      # app setup, model loading at start-up, /health
 │   │   ├── config.py    # settings from environment variables or backend/.env
 │   │   ├── db.py        # this component's own PostgreSQL database
+│   │   ├── tables.py    # prediction audit log, feedback, outcomes, pinned configurations
+│   │   ├── store.py     # reading and writing them (predictions never wait for the database)
+│   │   ├── prediction.py  # the link to the prediction engine in ml-engine
 │   │   ├── schemas.py   # request and response models (proposal Appendix C)
-│   │   └── api/v1/      # /estimate, /risk, /recommend, /models, /compare
+│   │   └── api/v1/      # /estimate, /risk, /recommend, /compare, /models, pins, feedback, outcomes
 │   ├── tests/
 │   └── Dockerfile
 ├── ml-engine/           # Python package `erp`: data pipeline, labels, features, models
@@ -32,6 +35,8 @@ Effort-Estimation-and-Sprint-Risk-Predictor/
 │   │   ├── features/    # the feature catalogue and its computation
 │   │   ├── models/      # encoders, learners, M3, calibration (C1, C2), explanations, metrics
 │   │   ├── arena/       # Phase 4: the Comparative Model Arena, stack, leaderboard, H1 / H2
+│   │   ├── serving/     # Phase 5: live features, router (R1), explanations (X1), recommendations (R2),
+│   │   │                #          sprint simulation (A1): the engine behind the API
 │   │   └── tawos.py     # loading the exported tables, decoding TAWOS fields
 │   ├── models/          # trained models, committed (LightGBM text, JSON, safetensors, skops; no pickles)
 │   ├── reports/         # generated reports (e.g. tawos-profile.md)
@@ -47,7 +52,7 @@ Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the r
 
    ```powershell
    py -3.12 -m venv .venv
-   .venv\Scripts\python -m pip install -e "backend[dev]" -e "ml-engine[dev]"
+   .venv\Scripts\python -m pip install -e "ml-engine[dev,serving]" -e "backend[dev]"
    ```
 
 2. Start this component's database, then run the API with auto-reload:
@@ -67,7 +72,10 @@ Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the r
    cd ..\ml-engine; ..\.venv\Scripts\python -m pytest
    ```
 
-To run the service and its database together in Docker instead: `docker compose up --build`.
+To run the service and its database together in Docker instead: `docker compose up --build`. The image is
+built from the repository root, because it holds the prediction engine and the trained models; it includes the
+CPU build of torch and the SBERT model (build with `--build-arg WITH_TORCH=false` for a smaller image that
+serves only the FastText and TF-IDF configurations, which the router uses).
 
 ### Database
 
@@ -81,9 +89,24 @@ This component has its own PostgreSQL database and account. No other component c
 
 ### API contract
 
-Until the models are trained, `/estimate` returns placeholder predictions marked `model_version: "stub"` and
-`/risk`, `/recommend` and `/compare` answer `501 Not Implemented`, so the gateway and dashboard can already be
-built against the real shapes. The shared JSON Schemas live in
+The service answers with the Comparative Model Arena's trained models (`ml-engine/models/arena-v1`), loaded
+once at start-up.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/v1/estimate` | Effort, interval, risk, confidence, reasons and recommendations for every story (Appendix C) |
+| `POST /api/v1/risk` | The same, plus the sprint-level risk: Monte Carlo of committed effort against capacity (FR16) |
+| `POST /api/v1/recommend` | Only the recommendations, per story and for the sprint (FR15) |
+| `POST /api/v1/compare` | The same backlog through several configurations side by side (FR12) |
+| `GET /api/v1/models` | The arena's configurations with their leaderboard metrics (FR10) |
+| `GET / PUT / DELETE /api/v1/projects/{id}/pin` | Pin a configuration for a project, overriding the router (FR12) |
+| `POST /api/v1/feedback`, `POST /api/v1/outcomes` | A product owner's decision; what really happened (FR19) |
+
+The router (R1) answers with the arena's pooled winner unless a project's own winner is clearly better or a
+configuration is pinned; every prediction names its configuration, model version and the feature groups it used,
+and is stored in the audit log (FR21). Requests may add the team's recent delivery (`team_context`) and the
+sprint (`sprint_context`); without them the prediction is flagged as a cold start and its confidence is lower.
+The shared JSON Schemas live in
 [`Synapse-Web/contracts/effort-estimation`](https://github.com/J26-SE-309/Synapse-Web/tree/main/contracts/effort-estimation);
 keep them in sync with `backend/app/schemas.py`.
 

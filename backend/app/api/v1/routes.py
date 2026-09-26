@@ -1,109 +1,160 @@
 """Version 1 of the prediction API (proposal Figure 2: /estimate, /risk, /recommend, /models, /compare).
 
-Until the trained models are plugged in, /estimate returns placeholder predictions
-(model_version "stub") so the gateway and dashboard can be built against the real contract.
+Predictions come from the Comparative Model Arena's configurations (ml-engine/models/arena-v1) through the
+prediction engine in ml-engine (erp.serving): the router picks the configuration (FR11) unless the product owner
+pinned one (FR12), and every prediction carries its interval and calibrated probability (FR13), its reasons
+(FR14), its recommendations (FR15), the feature groups it used (FR17) and its model version (FR21).
 """
-
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 
+from app import store
+from app.prediction import engine_arguments, get_engine
 from app.schemas import (
+    CompareRequest,
+    CompareResponse,
     EstimateRequest,
     EstimateResponse,
+    Feedback,
     ModelConfiguration,
+    ModelsResponse,
     ModelSummary,
-    Prediction,
-    PredictionInterval,
-    StoryInput,
+    Outcome,
+    Pin,
+    PinRequest,
+    RecommendResponse,
+    Recorded,
+    SprintRiskResponse,
+    StoryRecommendations,
 )
 
 router = APIRouter(tags=["effort estimation and sprint risk"])
 
-# Proposal Appendix D: the configurations the Comparative Model Arena starts with.
-ARENA_CONFIGURATIONS = [
-    ("tfidf", "random_forest", "single_task"),
-    ("tfidf", "svr_svm", "single_task"),
-    ("fasttext", "lightgbm", "single_task"),
-    ("sbert", "xgboost", "single_task"),
-    ("sbert", "lightgbm", "single_task"),
-    ("sbert", "catboost", "single_task"),
-    ("sbert", "mlp", "multi_task"),
-    ("distilbert", "fine_tuned", "single_task"),
-    ("stacked", "ensemble", "single_task"),
-]
 
-_QUALITY_FIELDS = ("ambiguity_score", "vague_term_count", "missing_info_flag_count", "ac_completeness_score",
-                   "invest_compliance_flags")
-_TRACEABILITY_FIELDS = ("traceability_coverage_pct", "unlinked_artifact_count", "has_linked_tests")
+def _pinned(request: EstimateRequest) -> str | None:
+    """The request's own pin, else the one stored for the project."""
+    return request.pinned_configuration or store.get_pin(request.project_id)[0]
 
 
-def feature_groups_used(story: StoryInput) -> list[str]:
-    """Feature groups available for this story; missing upstream groups mean a degraded prediction (FR17)."""
-    groups = ["textual", "dependency", "metadata"]
-    if any(getattr(story.upstream, name) is not None for name in _QUALITY_FIELDS):
-        groups.append("requirement_quality")
-    if any(getattr(story.upstream, name) is not None for name in _TRACEABILITY_FIELDS):
-        groups.append("traceability")
-    return groups
-
-
-def _placeholder(project_id: str, story: StoryInput, now: datetime) -> Prediction:
-    return Prediction(
-        story_id=story.story_id,
-        project_id=project_id,
-        predicted_story_points=3.0,
-        effort_category="medium",
-        prediction_interval=PredictionInterval(lower=1.0, upper=5.0),
-        sprint_risk_level="low",
-        spillover_probability=0.0,
-        confidence_score=0.0,
-        key_risk_reasons=[],
-        recommendations=[],
-        model_configuration=ModelConfiguration(encoder="none", learner="none", formulation="single_task"),
-        selection_mode="auto",
-        feature_groups_used=feature_groups_used(story),
-        model_version="stub",
-        generated_at=now,
-    )
+def _run(request: EstimateRequest, sprint_level: bool = False) -> dict:
+    engine = get_engine()
+    method = engine.sprint_risk if sprint_level else engine.estimate
+    try:
+        result = method(**engine_arguments(request), pinned=_pinned(request))
+    except KeyError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error.args[0])) from error
+    features = result.pop("features")
+    store.record_predictions(request.project_id, request.sprint_id, result["predictions"], features)
+    return result
 
 
 @router.post("/estimate", response_model=EstimateResponse)
-def estimate(request: EstimateRequest) -> EstimateResponse:
+def estimate(request: EstimateRequest) -> dict:
     """Estimate effort and sprint risk for every story in a backlog, in the order given."""
-    now = datetime.now(UTC)
-    return EstimateResponse(predictions=[_placeholder(request.project_id, story, now) for story in request.stories])
+    return _run(request)
 
 
-@router.get("/models", response_model=list[ModelSummary])
-def models() -> list[ModelSummary]:
-    """Configurations in the Comparative Model Arena. The leaderboard metrics arrive with the arena."""
-    return [
-        ModelSummary(
-            configuration=ModelConfiguration(encoder=encoder, learner=learner, formulation=formulation),
-            status="planned",
-        )
-        for encoder, learner, formulation in ARENA_CONFIGURATIONS
-    ]
+@router.post("/risk", response_model=SprintRiskResponse)
+def sprint_risk(request: EstimateRequest) -> dict:
+    """Sprint-level risk of committing to this backlog (FR16, Monte Carlo), with the story predictions.
+
+    Over-commitment needs the team's capacity: sprint_context.capacity_points or team_context.velocity_mean.
+    """
+    return _run(request, sprint_level=True)
 
 
-def _not_implemented() -> None:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Not implemented yet")
+@router.post("/recommend", response_model=RecommendResponse)
+def recommend(request: EstimateRequest) -> dict:
+    """Planning recommendations for a backlog (FR15): per story, and for the sprint as a whole."""
+    result = _run(request, sprint_level=True)
+    return {
+        "stories": [StoryRecommendations(**{k: p[k] for k in StoryRecommendations.model_fields})
+                    for p in result["predictions"]],
+        "sprint": result["sprint"]["recommendations"],
+    }
 
 
-@router.post("/risk")
-def sprint_risk() -> None:
-    """Sprint-level risk for a whole backlog (FR16, Monte Carlo aggregator)."""
-    _not_implemented()
+@router.post("/compare", response_model=CompareResponse)
+def compare(request: CompareRequest) -> dict:
+    """The same backlog through several configurations side by side (FR12). Not recorded in the audit log."""
+    arguments = engine_arguments(request)
+    try:
+        result = get_engine().compare(arguments["project_id"], arguments["stories"], request.configurations,
+                                      arguments["team"], arguments["sprint_context"])
+    except KeyError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error.args[0])) from error
+    return {"results": [{"configuration_id": r["configuration_id"], "predictions": r["predictions"]}
+                        for r in result["results"]]}
 
 
-@router.post("/recommend")
-def recommend() -> None:
-    """Planning recommendations for a backlog (FR15)."""
-    _not_implemented()
+@router.get("/models", response_model=ModelsResponse)
+def models() -> ModelsResponse:
+    """The arena's configurations with their test-split leaderboard metrics (FR10)."""
+    from erp.arena import configs
+
+    board = get_engine().models()
+    listed = {m["configuration_id"] for m in board["configurations"]}
+    summaries = [ModelSummary(
+        configuration_id=m["configuration_id"], label=m["label"], role=m["role"],
+        configuration=ModelConfiguration(encoder=m["encoder"], learner=m["learner"],
+                                         formulation="multi_task" if m["learner"] == "mlp" else "single_task"),
+        status=m["status"], loaded=m["loaded"], eligible=m["eligible"],
+        failed_requirements=m["failed_requirements"], composite=m["composite"], metrics=m["metrics"])
+        for m in board["configurations"]]
+    summaries += [ModelSummary(  # in the arena's plan but not trained (DistilBERT waits for its GPU run)
+        configuration_id=c.id, label=c.label, role=c.role, status="planned", loaded=False,
+        configuration=ModelConfiguration(encoder=c.encoder, learner=c.learner, formulation="single_task"))
+        for c in configs.CONFIGS if c.id not in listed]
+    return ModelsResponse(arena=board["arena"], pooled_winner=board["pooled_winner"], weights=board["weights"],
+                          configurations=summaries)
 
 
-@router.post("/compare")
-def compare() -> None:
-    """Predictions from several configurations side by side (FR12)."""
-    _not_implemented()
+# ------------------------------------------------------------------ pinning (FR12)
+
+
+@router.get("/projects/{project_id}/pin", response_model=Pin)
+def get_pin(project_id: str) -> Pin:
+    configuration_id, pinned_at = store.get_pin(project_id)
+    return Pin(project_id=project_id, configuration_id=configuration_id, pinned_at=pinned_at)
+
+
+@router.put("/projects/{project_id}/pin", response_model=Pin)
+def pin(project_id: str, request: PinRequest) -> Pin:
+    """Answer this project's requests with one configuration from now on, instead of the router's choice."""
+    if request.configuration_id not in get_engine().router.available:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            f"configuration {request.configuration_id!r} is not available")
+    if not store.set_pin(project_id, request.configuration_id):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The database is unavailable; nothing was pinned")
+    return get_pin(project_id)
+
+
+@router.delete("/projects/{project_id}/pin", response_model=Pin)
+def unpin(project_id: str) -> Pin:
+    if not store.set_pin(project_id, None):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The database is unavailable; nothing changed")
+    return Pin(project_id=project_id, configuration_id=None)
+
+
+# ------------------------------------------------------------------ feedback and outcomes (FR19)
+
+
+def _known(prediction_id: str) -> None:
+    if store.prediction_exists(prediction_id) is False:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No prediction {prediction_id}")
+
+
+@router.post("/feedback", response_model=Recorded, status_code=status.HTTP_201_CREATED)
+def feedback(request: Feedback) -> Recorded:
+    """Record a product owner's accept / adjust / reject decision on a prediction or a recommendation."""
+    _known(request.prediction_id)
+    record_id, recorded = store.record_feedback(request.model_dump())
+    return Recorded(id=record_id, recorded=recorded)
+
+
+@router.post("/outcomes", response_model=Recorded, status_code=status.HTTP_201_CREATED)
+def outcome(request: Outcome) -> Recorded:
+    """Record what really happened to the story in its sprint, for evaluation and retraining (FR20)."""
+    _known(request.prediction_id)
+    record_id, recorded = store.record_outcome(request.model_dump())
+    return Recorded(id=record_id, recorded=recorded)

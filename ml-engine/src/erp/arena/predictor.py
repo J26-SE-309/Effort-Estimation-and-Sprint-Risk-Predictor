@@ -7,6 +7,7 @@ the confidence band (erp.models.confidence).
 """
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +28,29 @@ MANIFEST = "model.json"
 def _logit(p) -> np.ndarray:
     p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
     return np.log(p / (1 - p))
+
+
+def with_estimated_points(stories: pd.DataFrame, log_points) -> pd.DataFrame:
+    """M2 reads the story's committed points; a story without an estimate gets M1's (ML guide 4.2).
+
+    Every training story had points, so this changes nothing there; it matters for new backlog items.
+    """
+    if "story_points" not in stories or not stories["story_points"].isna().any():
+        return stories
+    filled = stories.copy()
+    missing = filled["story_points"].isna().to_numpy()
+    filled.loc[missing, "story_points"] = np.expm1(np.asarray(log_points, float)[missing])
+    return filled
+
+
+@dataclass
+class Run:
+    """One pass through a configuration: its text vectors, model inputs and raw outputs."""
+
+    text: object
+    inputs: dict  # "effort" and "risk", or "joint" for M3
+    log_points: np.ndarray
+    raw: np.ndarray
 
 
 class Predictor:
@@ -54,16 +78,23 @@ class Predictor:
             return self.encoder.encode(list(texts))
         return self.encoder.transform(texts)
 
-    def raw(self, stories: pd.DataFrame, text: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-        """(log(1 + points), risk score before C1)."""
+    def run(self, stories: pd.DataFrame, text: np.ndarray | None = None) -> Run:
         text = self.encode(stories) if text is None else text
         columns = data.text_columns(self.encoder_name)
         if hasattr(self, "joint"):
-            out = self.joint.predict(design(stories, text, "joint", text_columns=columns, levels=self.levels))
-            return out["effort"], out["risk"]
+            x = design(stories, text, "joint", text_columns=columns, levels=self.levels)
+            out = self.joint.predict(x)
+            return Run(text, {"joint": x}, out["effort"], out["risk"])
         x1 = design(stories, text, "effort", text_columns=columns, levels=self.levels)
-        x2 = design(stories, text, "risk", text_columns=columns, levels=self.levels)
-        return self.effort_model.predict(x1), self.risk_model.predict(x2)
+        log_points = self.effort_model.predict(x1)
+        x2 = design(with_estimated_points(stories, log_points), text, "risk", text_columns=columns,
+                    levels=self.levels)
+        return Run(text, {"effort": x1, "risk": x2}, log_points, self.risk_model.predict(x2))
+
+    def raw(self, stories: pd.DataFrame, text: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """(log(1 + points), risk score before C1)."""
+        run = self.run(stories, text)
+        return run.log_points, run.raw
 
     def predict(self, stories: pd.DataFrame, text: np.ndarray | None = None, missing_groups=0) -> pd.DataFrame:
         log_points, raw = self.raw(stories, text)

@@ -27,11 +27,16 @@ services:
       retries: 10
 
   effort-api:
-    build: ./backend
+    # Built from the repository root: the service needs ml-engine/ (the prediction engine and the trained models).
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://effort_user:${EFFORT_DB_PASSWORD:-effort-local}@effort-db:5432/effort_db
     ports:
       - "127.0.0.1:8004:8004"
+    # NFR12: inference within 4 GB of memory on a CPU.
+    mem_limit: 4g
     depends_on:
       effort-db:
         condition: service_healthy

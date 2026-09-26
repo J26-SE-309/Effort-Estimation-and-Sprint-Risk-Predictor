@@ -230,10 +230,13 @@ class DistilBertPredictor:
         return encoders.story_text(stories)  # DistilBERT reads the text itself
 
     def raw(self, stories: pd.DataFrame, text: pd.Series | None = None) -> tuple[np.ndarray, np.ndarray]:
+        from erp.arena.predictor import with_estimated_points
+
         text = encoders.story_text(stories) if text is None else text
-        out = {t: m.predict(text, design(stories, None, t, use_text=False, levels=self.levels))
-               for t, m in self.models.items()}
-        return out["effort"], out["risk"]
+        effort = self.models["effort"].predict(text, design(stories, None, "effort", use_text=False,
+                                                            levels=self.levels))
+        risk_inputs = design(with_estimated_points(stories, effort), None, "risk", use_text=False, levels=self.levels)
+        return effort, self.models["risk"].predict(text, risk_inputs)
 
     def predict(self, stories: pd.DataFrame, text=None, missing_groups=0) -> pd.DataFrame:
         from erp.arena.predictor import finish

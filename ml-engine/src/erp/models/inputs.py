@@ -28,6 +28,8 @@ def structured(frame: pd.DataFrame, task: str, levels: dict[str, list[str]] | No
     for column in x.columns:
         if column in CATEGORICAL:
             values = x[column].astype(str)
+            if levels:  # a value the models never saw (a new project, a missing type) is unknown: NaN
+                values = values.where(values.isin(levels[column]))
             x[column] = pd.Categorical(values, categories=levels[column] if levels else None)
         elif pd.api.types.is_bool_dtype(x[column]):
             x[column] = x[column].astype(int)

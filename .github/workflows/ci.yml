@@ -25,9 +25,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: |
+            backend/pyproject.toml
+            ml-engine/pyproject.toml
       - name: Install
-        run: pip install -e ".[dev]"
+        # the prediction engine (ml-engine) with the serving learners, then the service; the tests use the
+        # trained models committed in ml-engine/models/arena-v1
+        run: |
+          pip install -e "../ml-engine[serving]"
+          pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
       - name: Test
