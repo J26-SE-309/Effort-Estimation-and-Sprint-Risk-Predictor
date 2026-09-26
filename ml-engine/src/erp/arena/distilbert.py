@@ -3,7 +3,9 @@
 The story text goes through DistilBERT (distilbert-base-uncased, pinned revision, first 256 word pieces);
 its first-token vector is joined with the structured features (TabularPrep) and a small head (768 + features
 -> 256 -> 1) predicts standardised log(1 + story points) with a Huber loss, or the at-risk logit with binary
-cross-entropy. Every layer of DistilBERT is retrained with the head.
+cross-entropy. Every layer of DistilBERT is retrained with the head. A network's regression output is unbounded:
+trained on few stories (the first inner fold), a story with unusual feature values can make it extrapolate to
+thousands of points, so effort predictions are kept inside the story-point range of the data (1-100 points).
 
 Tuning: fine-tuning is far too costly for 25 Optuna trials, so it uses the grid the BERT authors recommend
 (Devlin et al., 2019): learning rate 2e-5, 3e-5 or 5e-5 and batch size 16 or 32, up to 4 epochs with the best
@@ -34,6 +36,7 @@ from erp.arena.train import directory_size, fold_score, log, uncertainty
 from erp.models import encoders
 from erp.models.bundle import RISK_BANDS, code_version
 from erp.models.inputs import TabularPrep, design
+from erp.snapshot.filters import SP_RANGE
 
 MODEL_ID = "distilbert/distilbert-base-uncased"
 REVISION = "12040accade4e8a0f71eabdb258fecc2e7e948be"  # the Hugging Face commit of the weights we start from
@@ -45,6 +48,7 @@ WEIGHT_DECAY = 0.01
 WARMUP_SHARE = 0.1
 DROPOUT = 0.1
 HUBER_DELTA = 1.0
+LOG_POINTS = (float(np.log1p(SP_RANGE[0])), float(np.log1p(SP_RANGE[1])))  # the valid effort range
 DIRECTORY = MODELS_DIR / "distilbert"
 TRAINING = "training.json"
 
@@ -173,7 +177,7 @@ class DistilBertLearner:
     def predict(self, texts: pd.Series, x: pd.DataFrame, device: str = "cpu") -> np.ndarray:
         out = self._forward(list(texts), self.prep.transform(x), device).astype(float)
         if self.task == "effort":
-            return out * self.target["std"] + self.target["mean"]
+            return np.clip(out * self.target["std"] + self.target["mean"], *LOG_POINTS)
         return 1 / (1 + np.exp(-out))
 
     def save(self, directory: Path, prefix: str) -> dict:
