@@ -1,0 +1,285 @@
+{
+  "_synthetic": "Synthetic backlog (backend/app/backlogs.py): made-up stories, component signals and links for development, tests and demos. Never use it to evaluate the models (ML guide 7.2).",
+  "project_id": "SYN-NOPOINTS",
+  "sprint_id": "SYN-NOPOINTS-S5",
+  "stories": [
+    {
+      "story_id": "SYN-NOPOINTS-B1",
+      "title": "As a student I want to pay for a session with a saved card so that checking out is quick",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 1,
+      "dep_out_degree": 2,
+      "linked_issue_count": 4,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.34,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": false,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NOPOINTS-B2",
+      "title": "As a student I want to rate a tutor after a session so that other students can choose good tutors",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 0,
+      "linked_issue_count": 1,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.34,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": false,
+          "testable": false
+        },
+        "traceability_coverage_pct": 1.0,
+        "unlinked_artifact_count": 0,
+        "has_linked_tests": true
+      }
+    },
+    {
+      "story_id": "SYN-NOPOINTS-B3",
+      "title": "Set up nightly database backups",
+      "description": "Back up the database every night and keep 14 days of backups.",
+      "acceptance_criteria": [],
+      "issue_type": "Task",
+      "priority": "Major",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 1,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.22,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 0,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": false,
+          "estimable": true,
+          "small": false,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NOPOINTS-B4",
+      "title": "As a student I want to book an available tutoring session by choosing a tutor, date and time so that I get help when it suits me",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 1,
+      "dep_out_degree": 0,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.45,
+        "vague_term_count": 1,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": false,
+          "testable": false
+        },
+        "traceability_coverage_pct": 1.0,
+        "unlinked_artifact_count": 0,
+        "has_linked_tests": true
+      }
+    },
+    {
+      "story_id": "SYN-NOPOINTS-B5",
+      "title": "As a tutor I want to set my weekly availability so that students can only book times I can teach",
+      "description": "Tutors have asked for this in the last survey.",
+      "acceptance_criteria": [
+        "Given I am on my availability page, when I mark Monday 16:00-18:00 as free and save, then students see those hours as bookable"
+      ],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 2,
+      "dep_out_degree": 1,
+      "linked_issue_count": 3,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.09,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 0,
+        "ac_completeness_score": 0.86,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": false,
+          "testable": true
+        },
+        "traceability_coverage_pct": 1.0,
+        "unlinked_artifact_count": 0,
+        "has_linked_tests": true
+      }
+    },
+    {
+      "story_id": "SYN-NOPOINTS-B6",
+      "title": "Double charge when Pay is clicked twice",
+      "description": "Clicking Pay twice quickly charges the card twice.",
+      "acceptance_criteria": [],
+      "issue_type": "Bug",
+      "priority": "Minor",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 1,
+      "dep_out_degree": 2,
+      "linked_issue_count": 3,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.27,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": false,
+          "estimable": true,
+          "small": false,
+          "testable": true
+        },
+        "traceability_coverage_pct": 1.0,
+        "unlinked_artifact_count": 0,
+        "has_linked_tests": true
+      }
+    },
+    {
+      "story_id": "SYN-NOPOINTS-B7",
+      "title": "As a parent I want to receive a weekly progress summary for my child so that I know how they are doing",
+      "description": "Parents have asked for this in the last survey.",
+      "acceptance_criteria": [
+        "Given my child had sessions this week, when Sunday evening comes, then I get an email listing the sessions and ratings"
+      ],
+      "issue_type": "Story",
+      "priority": "Trivial",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 0,
+      "linked_issue_count": 0,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.07,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 0,
+        "ac_completeness_score": 0.98,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": false,
+          "testable": true
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": true
+      }
+    },
+    {
+      "story_id": "SYN-NOPOINTS-B8",
+      "title": "As an admin I want to export the month's sessions as a CSV file so that finance can pay the tutors",
+      "description": "See the survey.",
+      "acceptance_criteria": [
+        "Given sessions took place this month, when I export them, then the file lists each session's tutor, date and price"
+      ],
+      "issue_type": "Story",
+      "priority": "Minor",
+      "story_points": null,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 2,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.43,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.44,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": false,
+          "testable": true
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    }
+  ]
+}

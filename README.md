@@ -199,6 +199,11 @@ The `SYN-*` teams cover what TAWOS lacks: a brand-new team, teams with 1 and 2 c
 steady and erratic teams, and a team that never estimates. They are synthetic and must not be used to evaluate
 the models (ML guide 7.2); name them in the proposal's AI-use disclosure (Appendix H).
 
+The other inputs (story text, the components' signals, tracker links) arrive with every request, so their
+synthetic data is ready-made requests: [`backend/examples/backlogs`](backend/examples/backlogs) has a backlog for
+each `SYN-*` team's running sprint, the same backlog without the components' signals (FR17), and odd edge cases
+(`python -m app.devdata backlogs` regenerates them).
+
 ## ML pipeline: TAWOS data
 
 Data is never stored in this repository. It lives in a `Datasets` folder **next to** the repositories

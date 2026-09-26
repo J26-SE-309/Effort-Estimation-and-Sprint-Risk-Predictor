@@ -1,0 +1,285 @@
+{
+  "_synthetic": "Synthetic backlog (backend/app/backlogs.py): made-up stories, component signals and links for development, tests and demos. Never use it to evaluate the models (ML guide 7.2).",
+  "project_id": "SYN-NEW",
+  "sprint_id": "SYN-NEW-S1",
+  "stories": [
+    {
+      "story_id": "SYN-NEW-B1",
+      "title": "Performance",
+      "description": "Everything should load quickly, ASAP.",
+      "acceptance_criteria": [],
+      "issue_type": "Improvement",
+      "priority": "Minor",
+      "story_points": 8.0,
+      "blocker_count": 2,
+      "dep_in_degree": 1,
+      "dep_out_degree": 2,
+      "linked_issue_count": 3,
+      "has_epic": true,
+      "in_progress": true,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.94,
+        "vague_term_count": 2,
+        "missing_info_flag_count": 2,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": false,
+          "negotiable": false,
+          "valuable": false,
+          "estimable": false,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NEW-B2",
+      "title": "As a student I want to rate a tutor after a session so that other students can choose good tutors",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": 2.0,
+      "blocker_count": 2,
+      "dep_in_degree": 2,
+      "dep_out_degree": 2,
+      "linked_issue_count": 5,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.39,
+        "vague_term_count": 1,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": false,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NEW-B3",
+      "title": "As a tutor I want to set my weekly availability so that students can only book times I can teach",
+      "description": "See the survey.",
+      "acceptance_criteria": [
+        "Given I am on my availability page, when I mark Monday 16:00-18:00 as free and save, then students see those hours as bookable"
+      ],
+      "issue_type": "Story",
+      "priority": "Trivial",
+      "story_points": 3.0,
+      "blocker_count": 0,
+      "dep_in_degree": 1,
+      "dep_out_degree": 2,
+      "linked_issue_count": 3,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.47,
+        "vague_term_count": 1,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.47,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": true
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NEW-B4",
+      "title": "As a student I want to search tutors by subject and hourly price so that I find someone I can afford",
+      "description": "Students have asked for this in the last survey.",
+      "acceptance_criteria": [
+        "Given tutors teach maths at different prices, when I search maths up to 20 per hour, then only maths tutors at or below 20 are listed"
+      ],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": 5.0,
+      "blocker_count": 0,
+      "dep_in_degree": 1,
+      "dep_out_degree": 2,
+      "linked_issue_count": 4,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.19,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 0,
+        "ac_completeness_score": 0.99,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": true
+        },
+        "traceability_coverage_pct": 1.0,
+        "unlinked_artifact_count": 0,
+        "has_linked_tests": true
+      }
+    },
+    {
+      "story_id": "SYN-NEW-B5",
+      "title": "As an admin I want to export the month's sessions as a CSV file so that finance can pay the tutors",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": 3.0,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 2,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.31,
+        "vague_term_count": 1,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NEW-B6",
+      "title": "As a tutor I want to upload course materials for a session so that students can prepare",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Blocker",
+      "story_points": 5.0,
+      "blocker_count": 0,
+      "dep_in_degree": 0,
+      "dep_out_degree": 1,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.36,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NEW-B7",
+      "title": "As a student I want to pay for a session with a saved card so that checking out is quick",
+      "description": "See the survey.",
+      "acceptance_criteria": [],
+      "issue_type": "Story",
+      "priority": "Blocker",
+      "story_points": 8.0,
+      "blocker_count": 2,
+      "dep_in_degree": 0,
+      "dep_out_degree": 2,
+      "linked_issue_count": 2,
+      "has_epic": true,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.38,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 1,
+        "ac_completeness_score": 0.0,
+        "invest_compliance_flags": {
+          "independent": false,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": false
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": false
+      }
+    },
+    {
+      "story_id": "SYN-NEW-B8",
+      "title": "As a tutor I want to message a student before a session so that we can agree what to cover",
+      "description": "Tutors have asked for this in the last survey.",
+      "acceptance_criteria": [
+        "Given I have a booked session with a student, when I send a message, then the student sees it in their inbox"
+      ],
+      "issue_type": "Story",
+      "priority": "Major",
+      "story_points": 5.0,
+      "blocker_count": 0,
+      "dep_in_degree": 2,
+      "dep_out_degree": 1,
+      "linked_issue_count": 4,
+      "has_epic": false,
+      "in_progress": false,
+      "added_mid_sprint": false,
+      "days_into_sprint": 0.0,
+      "upstream": {
+        "ambiguity_score": 0.11,
+        "vague_term_count": 0,
+        "missing_info_flag_count": 0,
+        "ac_completeness_score": 0.95,
+        "invest_compliance_flags": {
+          "independent": true,
+          "negotiable": true,
+          "valuable": true,
+          "estimable": true,
+          "small": true,
+          "testable": true
+        },
+        "traceability_coverage_pct": 0.67,
+        "unlinked_artifact_count": 1,
+        "has_linked_tests": true
+      }
+    }
+  ]
+}

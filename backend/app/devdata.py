@@ -9,6 +9,7 @@ Run from backend/ (into the service's database: DATABASE_URL in backend/.env, el
     python -m app.devdata delete                 # every tawos and synthetic record, and those projects'
                                                  # predictions, feedback, outcomes and pins
     python -m app.devdata delete --source synthetic
+    python -m app.devdata backlogs               # the synthetic backlogs (estimate requests) as files, app.backlogs
 
 The TAWOS projects are real history from the TAWOS dataset (they need the Datasets folder). The SYN-* teams are
 made up by a seeded random generator for tests and demos: labelled synthetic, never used in any evaluation (ML
@@ -145,7 +146,14 @@ def main(argv: list[str] | None = None) -> None:
     commands.add_parser("list", help="the projects with sprint records and their sources")
     removing = commands.add_parser("delete", help="remove development data and those projects' predictions")
     removing.add_argument("--source", choices=DEVELOPMENT, help="only this kind (default: both)")
+    commands.add_parser("backlogs", help="write the synthetic backlogs to backend/examples/backlogs")
     args = parser.parse_args(argv)
+    if args.command == "backlogs":  # files only: no database
+        from app import backlogs
+
+        for path in backlogs.write():
+            print(f"Wrote {path}")
+        return
 
     where = "hosted" if db.hosted else "local"
     if not store.migrate():  # the tables as the service makes them at start-up
