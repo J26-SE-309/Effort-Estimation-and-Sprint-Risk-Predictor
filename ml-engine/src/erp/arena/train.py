@@ -176,7 +176,9 @@ def latency(model, stories: pd.DataFrame) -> dict:
     for run in range(LATENCY_RUNS + 2):
         started = time.perf_counter()
         if isinstance(model, predictor.StackPredictor):
-            text = {base.encoder_name: base.encode(sample, fresh=True) for base in model.bases.values()}
+            # each encoder once, even when several bases share it (as the service would do)
+            by_encoder = {base.encoder_name: base for base in model.bases.values()}
+            text = {name: base.encode(sample, fresh=True) for name, base in by_encoder.items()}
         else:
             text = model.encode(sample, fresh=True)
         model.predict(sample, text)
