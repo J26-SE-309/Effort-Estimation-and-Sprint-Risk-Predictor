@@ -10,7 +10,9 @@ H2 - do the requirement-quality and traceability signals add information? The be
      feature list and are left out) is retrained without each upstream feature group and without all three,
      with its tuned settings. Five seeds per variant are averaged, so seed noise cannot hide or fake a
      difference; differences against the full model get 95% paired bootstrap intervals over the test stories.
-     The removed groups' share of the full model's SHAP values shows how much it leaned on them.
+     How much the full model leans on each group: group permutation importance on the test split (the
+     group's columns shuffled together across stories; works for every learner), plus the group's share of
+     the SHAP values when the learner computes them natively (the boosters).
 
 Usage:
     erp-run-hypotheses              # after erp-arena-report; writes ml-engine/reports/hypotheses.md
@@ -129,6 +131,43 @@ def group_shares(learner, x: pd.DataFrame) -> pd.Series:
     return (groups / groups.sum()).sort_values(ascending=False)
 
 
+PERMUTATION_REPEATS = 5
+
+
+def feature_groups(columns) -> dict[str, list[str]]:
+    group_of = {f.name: f.group for f in catalog.FEATURES}
+    groups: dict[str, list[str]] = {}
+    for column in columns:
+        groups.setdefault(group_of.get(column.split("=", 1)[0], "text vector (encoder)"), []).append(column)
+    return groups
+
+
+def group_permutation(learner, x: pd.DataFrame, task: str, arena: ArenaData) -> dict:
+    """Loss in test accuracy when one feature group is shuffled across stories (all its columns together)."""
+    from sklearn.metrics import roc_auc_score
+
+    test = arena.frame.loc[x.index]
+
+    def score(predicted):
+        if task == "effort":
+            return -metrics.mae(test["story_points"], np.expm1(predicted))  # higher is better
+        return roc_auc_score(test["at_risk"], predicted)
+
+    base = score(learner.predict(x))
+    rng = np.random.default_rng(configs.SEED)
+    result = {}
+    for group, columns in feature_groups(x.columns).items():
+        losses = []
+        for _ in range(PERMUTATION_REPEATS):
+            order = rng.permutation(len(x))
+            shuffled = x.copy()
+            for column in columns:
+                shuffled[column] = x[column].iloc[order].set_axis(x.index)
+            losses.append(base - score(learner.predict(shuffled)))
+        result[group] = {"mean": float(np.mean(losses)), "sd": float(np.std(losses))}
+    return dict(sorted(result.items(), key=lambda kv: -kv[1]["mean"]))
+
+
 def h2(arena: ArenaData) -> dict:
     board = json.loads((MODELS_DIR / "leaderboard.json").read_text(encoding="utf-8"))["configs"]
     single = {n: c for n, c in board.items() if c["learner"] in LEARNERS}
@@ -145,7 +184,7 @@ def h2(arena: ArenaData) -> dict:
         text = arena.full_text(cfg.encoder)
         y = targets(arena.frame, task)
         seeds = [configs.SEED] if cfg.learner == "svm" else H2_SEEDS  # the SVM has no randomness
-        variants, shares = {}, None
+        variants, shares, permutation = {}, None, None
         for variant, drop in H2_VARIANTS.items():
             x = design(arena.frame, text, task, text_columns=text_columns(cfg.encoder), levels=arena.levels,
                        drop=drop)
@@ -156,8 +195,10 @@ def h2(arena: ArenaData) -> dict:
                 runs.append(predicted)
                 per_seed.append(effort_scores(arena, predicted)["mae"] if task == "effort"
                                 else risk_scores(arena, predicted)["roc_auc"])
-                if variant == "all features" and seed == seeds[0] and hasattr(learner, "contributions"):
-                    shares = group_shares(learner, x[test])
+                if variant == "all features" and seed == seeds[0]:
+                    permutation = group_permutation(learner, x[test], task, arena)
+                    if hasattr(learner, "contributions"):
+                        shares = group_shares(learner, x[test])
             mean = np.mean(runs, axis=0)
             scored = effort_scores(arena, mean) if task == "effort" else risk_scores(arena, mean)
             variants[variant] = {"prediction": mean, "scores": scored, "seed_sd": float(np.std(per_seed))}
@@ -184,7 +225,7 @@ def h2(arena: ArenaData) -> dict:
                     row["f1_change"] = metrics.paired_bootstrap(lambda t, s: f1_score(t, s >= 0.5), y_test,
                                                                 flags_a, flags_b)
             rows.append(row)
-        result["tasks"][task] = {"config": name, "seeds": seeds, "variants": rows,
+        result["tasks"][task] = {"config": name, "seeds": seeds, "variants": rows, "permutation": permutation,
                                  "shap_group_shares": None if shares is None else shares.round(4).to_dict()}
     prevalence = {f.name: float((arena.frame[f.name].astype(float) > 0).mean())
                   for g in catalog.UPSTREAM_GROUPS for f in catalog.FEATURES if f.group == g}
@@ -255,6 +296,12 @@ def build_report(one: dict | None, two: dict | None) -> str:
                                  "F1 change": change(v["f1_change"]) if "f1_change" in v else "–"})
             lines += [f"### {'Effort (M1)' if task == 'effort' else 'Risk (M2)'}: {label}", "",
                       md_table(pd.DataFrame(rows)), ""]
+            if t.get("permutation"):
+                unit = "MAE increase (points)" if task == "effort" else "ROC-AUC loss"
+                lines += [f"How much the full model leans on each group: {unit} when the group is shuffled across "
+                          f"the test stories (mean ± sd over {PERMUTATION_REPEATS} shuffles).", "",
+                          md_table(pd.DataFrame({"Group": list(t["permutation"]), unit: [
+                              f"{v['mean']:+.4f} ± {v['sd']:.4f}" for v in t["permutation"].values()]})), ""]
             if t["shap_group_shares"]:
                 shares = ", ".join(f"{g} {s:.1%}" for g, s in t["shap_group_shares"].items())
                 lines += [f"Share of the full model's mean absolute SHAP value by feature group: {shares}.", ""]
