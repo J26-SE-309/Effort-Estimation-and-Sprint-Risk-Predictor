@@ -12,13 +12,14 @@ pins table refreshed every PIN_CACHE_SECONDS.
 import logging
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 from alembic.util.exc import CommandError
-from sqlalchemy import inspect, select, text
+from sqlalchemy import distinct, func, inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import db
@@ -198,3 +199,125 @@ def reset() -> None:
     global _down_until, _pins
     _down_until = 0.0
     _pins = None
+
+
+# ------------------------------------------------------------------ reading back (the dashboard)
+
+
+class DatabaseUnavailable(Exception):
+    """The database cannot answer a read: the route answers 503."""
+
+
+@contextmanager
+def _reading():
+    if not _usable():
+        raise DatabaseUnavailable
+    try:
+        with db.SessionLocal() as session:
+            yield session
+    except SQLAlchemyError as error:
+        _failed(error)
+        raise DatabaseUnavailable from error
+
+
+def _latest(records) -> dict:
+    """The latest record per prediction (records ordered by created_at)."""
+    return {record.prediction_id: record for record in records}
+
+
+def _outcome_brief(outcome) -> dict | None:
+    if outcome is None:
+        return None
+    return {"completed_in_sprint": outcome.completed_in_sprint, "actual_story_points": outcome.actual_story_points,
+            "reopened": outcome.reopened}
+
+
+def predictions_page(project_id: str, sprint_id: str | None = None, story_id: str | None = None, limit: int = 50,
+                     offset: int = 0) -> tuple[list[dict], int | None]:
+    """A project's predictions, newest first, each with its latest feedback and outcome; and the next offset."""
+    with _reading() as session:
+        query = select(PredictionRecord).where(PredictionRecord.project_id == project_id)
+        if sprint_id is not None:
+            query = query.where(PredictionRecord.sprint_id == sprint_id)
+        if story_id is not None:
+            query = query.where(PredictionRecord.story_id == story_id)
+        records = session.scalars(query.order_by(PredictionRecord.created_at.desc(), PredictionRecord.id)
+                                  .offset(offset).limit(limit + 1)).all()
+        more, records = len(records) > limit, records[:limit]
+        ids = [r.id for r in records]
+        feedback = _latest(session.scalars(select(FeedbackRecord).where(FeedbackRecord.prediction_id.in_(ids))
+                                           .order_by(FeedbackRecord.created_at)))
+        outcomes = _latest(session.scalars(select(OutcomeRecord).where(OutcomeRecord.prediction_id.in_(ids))
+                                           .order_by(OutcomeRecord.created_at)))
+        page = []
+        for record in records:
+            shown = record.prediction
+            page.append({
+                "prediction_id": record.id, "created_at": record.created_at, "story_id": record.story_id,
+                "sprint_id": record.sprint_id, "configuration_id": record.configuration_id,
+                "model_version": record.model_version, "selection_mode": record.selection_mode,
+                **{k: shown[k] for k in ("predicted_story_points", "prediction_interval", "effort_category",
+                                         "spillover_probability", "sprint_risk_level", "confidence_score")},
+                "confidence_level": shown.get("confidence_level", "low"),
+                "feedback": feedback[record.id].decision if record.id in feedback else None,
+                "outcome": _outcome_brief(outcomes.get(record.id)),
+            })
+    return page, (offset + limit if more else None)
+
+
+def prediction_detail(prediction_id: str) -> dict | None:
+    """One prediction as it was sent, the features the models saw, and its feedback and outcomes."""
+    with _reading() as session:
+        record = session.get(PredictionRecord, prediction_id)
+        if record is None:
+            return None
+        feedback = session.scalars(select(FeedbackRecord).where(FeedbackRecord.prediction_id == prediction_id)
+                                   .order_by(FeedbackRecord.created_at)).all()
+        outcomes = session.scalars(select(OutcomeRecord).where(OutcomeRecord.prediction_id == prediction_id)
+                                   .order_by(OutcomeRecord.created_at)).all()
+        fields = ("id", "created_at", "prediction_id", "decision", "target", "recommendation_action",
+                  "adjusted_story_points", "reason")
+        return {
+            "prediction_id": record.id, "project_id": record.project_id, "sprint_id": record.sprint_id,
+            "created_at": record.created_at, "prediction": record.prediction, "features": record.features,
+            "feedback": [{k: getattr(f, k) for k in fields} for f in feedback],
+            "outcomes": [{"id": o.id, "created_at": o.created_at, "prediction_id": o.prediction_id,
+                          **_outcome_brief(o)} for o in outcomes],
+        }
+
+
+def project_summary(project_id: str, sprint_id: str | None = None) -> dict:
+    """How many predictions, of which kinds, what was decided, and how they turned out so far."""
+    where = [PredictionRecord.project_id == project_id]
+    if sprint_id is not None:
+        where.append(PredictionRecord.sprint_id == sprint_id)
+    level = PredictionRecord.prediction["sprint_risk_level"].as_string()
+    with _reading() as session:
+        count, stories, first, last = session.execute(select(
+            func.count(), func.count(distinct(PredictionRecord.story_id)), func.min(PredictionRecord.created_at),
+            func.max(PredictionRecord.created_at)).where(*where)).one()
+        by_level = dict(session.execute(select(level, func.count()).where(*where).group_by(level)).all())
+        by_configuration = dict(session.execute(select(PredictionRecord.configuration_id, func.count())
+                                                .where(*where).group_by(PredictionRecord.configuration_id)).all())
+        pinned = session.scalar(select(func.count()).where(*where, PredictionRecord.selection_mode == "pinned"))
+        decisions = dict(session.execute(
+            select(FeedbackRecord.decision, func.count()).join(PredictionRecord,
+                                                               FeedbackRecord.prediction_id == PredictionRecord.id)
+            .where(*where).group_by(FeedbackRecord.decision)).all())
+        known = session.execute(
+            select(OutcomeRecord, PredictionRecord.prediction).join(PredictionRecord,
+                                                                    OutcomeRecord.prediction_id == PredictionRecord.id)
+            .where(*where).order_by(OutcomeRecord.created_at)).all()
+    latest = {outcome.prediction_id: (outcome, shown) for outcome, shown in known}
+    done = [o.completed_in_sprint for o, _ in latest.values()]
+    errors = [abs(shown["predicted_story_points"] - o.actual_story_points)
+              for o, shown in latest.values() if o.actual_story_points is not None]
+    return {
+        "project_id": project_id, "sprint_id": sprint_id, "predictions": count, "stories": stories,
+        "first_at": first, "last_at": last, "by_risk_level": by_level, "by_configuration": by_configuration,
+        "pinned": pinned, "feedback": decisions, "outcomes": len(latest),
+        "completed_share": sum(done) / len(done) if done else None,
+        "mean_spillover_probability": (sum(s["spillover_probability"] for _, s in latest.values()) / len(latest)
+                                       if latest else None),
+        "effort_mae": sum(errors) / len(errors) if errors else None,
+    }

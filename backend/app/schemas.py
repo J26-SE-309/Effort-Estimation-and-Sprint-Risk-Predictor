@@ -286,3 +286,125 @@ class HistoryImport(BaseModel):
     sprints: int
     stories: int
     rows: int
+
+
+class SprintStory(BaseModel):
+    """A story in the sprint, as the platform knows it now."""
+
+    story_id: str
+    issue_type: str | None = Field(default=None, description="Story, Task, Bug, Improvement or New Feature")
+    committed_at: datetime = Field(description="When it was committed to the sprint (its start for a planned story)")
+    left_at: datetime | None = Field(default=None, description="When it was taken out before the end")
+    points_at_commit: float | None = Field(default=None, ge=0)
+    points_at_close: float | None = Field(default=None, ge=0)
+    done_in_sprint: bool | None = Field(default=None, description="Finished in this sprint (known once it closes)")
+    spilled_over: bool | None = Field(default=None, description="Not done by the end of the story's first sprint "
+                                                                "(R1); left empty, the service derives it at the close")
+    reopened: bool | None = Field(default=None, description="Reopened after done, then or in the next sprint (R6)")
+    started_at: datetime | None = None
+    resolved_at: datetime | None = None
+    hours_in_progress: float | None = Field(default=None, ge=0)
+
+
+class SprintRecord(BaseModel):
+    """A sprint as the platform knows it now. Send it whenever it changes (it starts, a story is added, taken out
+    or done, it closes): it replaces the service's copy of this sprint."""
+
+    name: str | None = None
+    started_at: datetime
+    planned_end: datetime
+    closed_at: datetime | None = Field(default=None, description="Empty while the sprint runs")
+    stories: list[SprintStory] = Field(default=[], max_length=2000)
+
+
+class SprintUpdate(BaseModel):
+    project_id: str
+    sprint_id: str
+    closed: bool
+    stories: int
+    outcomes_recorded: int = Field(description="Outcomes (FR19) recorded or updated for the stories' predictions")
+
+
+class SprintRemoved(BaseModel):
+    project_id: str
+    sprint_id: str
+    removed: bool
+
+
+# ---------------------------------------------------------------------------------------------- read-back
+
+
+class RecordedFeedback(Feedback):
+    id: str
+    created_at: datetime
+
+
+class RecordedOutcome(Outcome):
+    id: str
+    created_at: datetime
+
+
+class OutcomeBrief(BaseModel):
+    completed_in_sprint: bool
+    actual_story_points: float | None = None
+    reopened: bool = False
+
+
+class PredictionBrief(BaseModel):
+    """A past prediction in brief, with the latest decision on it and what happened."""
+
+    prediction_id: str
+    created_at: datetime
+    story_id: str
+    sprint_id: str | None = None
+    configuration_id: str
+    model_version: str
+    selection_mode: Literal["auto", "pinned"]
+    predicted_story_points: float
+    prediction_interval: PredictionInterval
+    effort_category: str
+    spillover_probability: float
+    sprint_risk_level: Literal["low", "medium", "high"]
+    confidence_score: float
+    confidence_level: str
+    feedback: Literal["accept", "adjust", "reject"] | None = Field(default=None, description="The latest decision")
+    outcome: OutcomeBrief | None = Field(default=None, description="What happened, once known")
+
+
+class PredictionPage(BaseModel):
+    project_id: str
+    predictions: list[PredictionBrief] = Field(description="Newest first")
+    next_offset: int | None = Field(default=None, description="Pass as offset for the next page; empty at the end")
+
+
+class PredictionDetail(BaseModel):
+    """One prediction as it was sent, what the models saw (FR21), and what was decided and happened (FR19)."""
+
+    prediction_id: str
+    project_id: str
+    sprint_id: str | None = None
+    created_at: datetime
+    prediction: Prediction
+    features: dict = Field(description="The feature values the models saw")
+    feedback: list[RecordedFeedback]
+    outcomes: list[RecordedOutcome]
+
+
+class ProjectSummary(BaseModel):
+    """A project's predictions at a glance, and how they turned out so far."""
+
+    project_id: str
+    sprint_id: str | None = None
+    predictions: int
+    stories: int
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+    by_risk_level: dict[str, int]
+    by_configuration: dict[str, int]
+    pinned: int = Field(description="Predictions from a configuration the product owner pinned")
+    feedback: dict[str, int] = Field(description="Decisions: accept, adjust, reject")
+    outcomes: int = Field(description="Predictions whose outcome is known")
+    completed_share: float | None = Field(default=None, description="Share of those stories done in their sprint")
+    mean_spillover_probability: float | None = Field(
+        default=None, description="What the models predicted for those stories, to compare with 1 - completed_share")
+    effort_mae: float | None = Field(default=None, description="Mean absolute error against the actual points")

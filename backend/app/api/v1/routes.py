@@ -12,7 +12,7 @@ await): a busy worker process then accepts no new connection, and the kernel han
 concurrent requests and the others idled (NFR1 missed: p95 2.3 s with 4 workers on Linux).
 """
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import history, store
@@ -31,9 +31,15 @@ from app.schemas import (
     Outcome,
     Pin,
     PinRequest,
+    PredictionDetail,
+    PredictionPage,
+    ProjectSummary,
     RecommendResponse,
     Recorded,
+    SprintRecord,
+    SprintRemoved,
     SprintRiskResponse,
+    SprintUpdate,
     StoryRecommendations,
 )
 
@@ -210,3 +216,74 @@ async def import_history(project_id: str, request: Request) -> HistoryImport:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The database is unavailable; nothing was imported") \
             from error
     return HistoryImport(project_id=project_id, source="imported", **counts)
+
+
+@router.put("/projects/{project_id}/sprints/{sprint_id}", response_model=SprintUpdate)
+def put_sprint(project_id: str, sprint_id: str, record: SprintRecord) -> SprintUpdate:
+    """The platform's sprint, as it is now: send it whenever it changes (it starts, a story is added, taken out or
+    done, it closes). It replaces the service's copy of this sprint only. At the close, each story's prediction for
+    this sprint gets its outcome (FR19), and a story's spillover (R1) is derived when the platform leaves it out.
+    """
+    sprint, items, problems = history.sprint_frames(sprint_id, record.model_dump())
+    if problems:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {
+            "message": f"{len(problems)} problem(s); nothing was changed", "problems": problems})
+    try:
+        counts = history.upsert_sprint(project_id, sprint, items)
+    except SQLAlchemyError as error:
+        store.note_failure(error)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The database is unavailable; nothing was changed") \
+            from error
+    return SprintUpdate(project_id=project_id, sprint_id=sprint_id, **counts)
+
+
+@router.delete("/projects/{project_id}/sprints/{sprint_id}", response_model=SprintRemoved)
+def delete_sprint(project_id: str, sprint_id: str) -> SprintRemoved:
+    """Remove a sprint and its stories (e.g. one created by mistake); outcomes already recorded stay."""
+    try:
+        removed = history.remove_sprint(project_id, sprint_id)
+    except SQLAlchemyError as error:
+        store.note_failure(error)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The database is unavailable; nothing changed") \
+            from error
+    return SprintRemoved(project_id=project_id, sprint_id=sprint_id, removed=removed)
+
+
+# ------------------------------------------------------------------ reading back (the dashboard)
+
+
+def _unavailable(error: Exception) -> HTTPException:
+    return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The database is unavailable; try again shortly")
+
+
+@router.get("/projects/{project_id}/predictions", response_model=PredictionPage)
+def list_predictions(project_id: str, sprint_id: str | None = None, story_id: str | None = None,
+                     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)) -> PredictionPage:
+    """The project's past predictions, newest first, each with the latest decision on it and its outcome. Filter
+    by sprint or story; page with offset (next_offset)."""
+    try:
+        page, next_offset = store.predictions_page(project_id, sprint_id, story_id, limit, offset)
+    except store.DatabaseUnavailable as error:
+        raise _unavailable(error) from error
+    return PredictionPage(project_id=project_id, predictions=page, next_offset=next_offset)
+
+
+@router.get("/predictions/{prediction_id}", response_model=PredictionDetail)
+def get_prediction(prediction_id: str) -> PredictionDetail:
+    """One prediction as it was sent, the feature values the models saw (FR21), and its feedback and outcomes."""
+    try:
+        detail = store.prediction_detail(prediction_id)
+    except store.DatabaseUnavailable as error:
+        raise _unavailable(error) from error
+    if detail is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No prediction {prediction_id}")
+    return PredictionDetail(**detail)
+
+
+@router.get("/projects/{project_id}/summary", response_model=ProjectSummary)
+def project_summary(project_id: str, sprint_id: str | None = None) -> ProjectSummary:
+    """The project's predictions at a glance (all, or one sprint's), what was decided, and how they turned out."""
+    try:
+        return ProjectSummary(**store.project_summary(project_id, sprint_id))
+    except store.DatabaseUnavailable as error:
+        raise _unavailable(error) from error

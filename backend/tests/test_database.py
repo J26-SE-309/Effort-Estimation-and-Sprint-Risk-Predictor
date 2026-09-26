@@ -108,3 +108,12 @@ def test_a_pin_applies_at_once_in_the_worker_that_set_it(client):
     assert client.post("/api/v1/estimate", json=story).json()["configuration_id"] == "tfidf-rf"
     client.delete("/api/v1/projects/SYN/pin")
     assert client.post("/api/v1/estimate", json=story).json()["selection_mode"] == "auto"
+
+
+def test_old_backups_are_pruned(tmp_path):
+    names = [f"effort-db-2026092{day}-210000.jsonl.gz" for day in range(1, 6)]
+    for name in names:
+        (tmp_path / name).write_bytes(b"")
+    (tmp_path / "backup.log").write_text("kept: not a backup")
+    assert [p.name for p in backup.prune(tmp_path, keep=2)] == names[:3]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["backup.log", *names[3:]]

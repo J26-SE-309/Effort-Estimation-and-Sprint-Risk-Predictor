@@ -16,17 +16,20 @@ cold start when its history cannot be read (NFR7).
 import io
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pandas as pd
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import db, store
-from app.tables import HistoryItem, HistorySprint
+from app.tables import HistoryItem, HistorySprint, OutcomeRecord, PredictionRecord
 
-SOURCES = ("imported", "tawos", "synthetic")  # a CSV through the API; real TAWOS sprints; made up (never evaluated)
+# platform: sprint by sprint from the platform (PUT .../sprints/{id}); imported: a CSV through the API; tawos: real
+# TAWOS sprints (development data); synthetic: made up for tests and demos, never used in any evaluation
+SOURCES = ("platform", "imported", "tawos", "synthetic")
 REFRESH_SECONDS = 60
 MAX_ROWS = 200_000
 BATCH = 5_000
@@ -253,6 +256,123 @@ def forget() -> None:
     _copies.clear()
 
 
+# ------------------------------------------------------------------ sprint updates from the platform
+
+
+def date_checks(values: dict[str, pd.Series]) -> list[tuple[pd.Series, str, str]]:
+    """(where it is wrong, column, problem) for times out of order, one entry per story row: shared by the CSV
+    import and the sprint updates."""
+    start, end, closed = values["sprint_started_at"], values["sprint_planned_end"], values["sprint_closed_at"]
+    return [
+        (end <= start, "sprint_planned_end", "the sprint must end after it starts"),
+        (closed < start, "sprint_closed_at", "the sprint cannot close before it starts"),
+        (values["committed_at"] > closed, "committed_at", "committed after the sprint closed"),
+        (values["left_at"] < values["committed_at"], "left_at", "left the sprint before it was committed"),
+        (values["resolved_at"] < values["started_at"], "resolved_at", "resolved before work started"),
+    ]
+
+
+def sprint_frames(sprint_id: str, record: dict) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
+    """(sprint, its stories, problems) from a sprint record (app.schemas.SprintRecord), each problem named after
+    the field it is in, e.g. stories[2].left_at."""
+    from erp.serving.history import ITEM_COLUMNS
+
+    sprint = pd.DataFrame([{"sprint_id": sprint_id, **{k: record.get(k) for k in SPRINT_FIELDS.values()}}])
+    items = pd.DataFrame(record.get("stories") or [], columns=[c for c in ITEM_COLUMNS if c != "sprint_id"])
+    items.insert(0, "sprint_id", sprint_id)
+    rows = max(len(items), 1)  # the sprint's own dates are checked even without stories
+    values = {f"sprint_{k}": pd.to_datetime(pd.Series([record.get(k)] * rows), utc=True)
+              for k in ("started_at", "planned_end", "closed_at")}
+    for column in ("committed_at", "left_at", "started_at", "resolved_at"):
+        values[column] = pd.to_datetime(items[column] if len(items) else pd.Series([None]), utc=True)
+    problems, seen = [], set()
+    for wrong, column, text in date_checks(values):
+        for row in wrong.index[wrong.fillna(False)]:
+            field = column.removeprefix("sprint_") if column.startswith("sprint_") else f"stories[{row}].{column}"
+            if field not in seen:
+                seen.add(field)
+                problems.append({"row": None, "column": field, "problem": text})
+    for story, rows_of_story in items.groupby("story_id").groups.items():
+        if len(rows_of_story) > 1:
+            problems.append({"row": None, "column": f"stories[{rows_of_story[1]}].story_id",
+                             "problem": f"{story} is already in this sprint as stories[{rows_of_story[0]}]"})
+    return sprint, items, problems
+
+
+def upsert_sprint(project_id: str, sprint: pd.DataFrame, items: pd.DataFrame, source: str = "platform") -> dict:
+    """Replace one sprint of the project, and its stories, with this copy. At the close, a story sent without its
+    R1 outcome gets it from done_in_sprint when this is its first sprint, and each story's prediction for this
+    sprint gets its outcome (FR19)."""
+    sprint_id, started = str(sprint.at[0, "sprint_id"]), pd.Timestamp(sprint.at[0, "started_at"])
+    closed_at = sprint.at[0, "closed_at"]
+    closed = closed_at is not None and not pd.isna(closed_at)
+    items = items.copy()
+    with db.engine.begin() as connection:
+        if closed and len(items):
+            earlier = set(connection.scalars(
+                select(HistoryItem.story_id).join(HistorySprint, (HistoryItem.project_id == HistorySprint.project_id)
+                                                  & (HistoryItem.sprint_id == HistorySprint.sprint_id))
+                .where(HistoryItem.project_id == project_id, HistorySprint.sprint_id != sprint_id,
+                       HistorySprint.started_at < started.to_pydatetime(),
+                       HistoryItem.story_id.in_(items["story_id"].tolist()))))
+            derive = items["spilled_over"].isna() & items["done_in_sprint"].notna() & ~items["story_id"].isin(earlier)
+            items["spilled_over"] = items["spilled_over"].astype(object)
+            items.loc[derive, "spilled_over"] = ~items.loc[derive, "done_in_sprint"].astype(bool)
+        connection.execute(delete(HistoryItem).where(HistoryItem.project_id == project_id,
+                                                     HistoryItem.sprint_id == sprint_id))
+        connection.execute(delete(HistorySprint).where(HistorySprint.project_id == project_id,
+                                                       HistorySprint.sprint_id == sprint_id))
+        connection.execute(insert(HistorySprint), _rows(sprint.assign(project_id=project_id, source=source)))
+        if len(items):
+            connection.execute(insert(HistoryItem), _rows(items.assign(project_id=project_id, source=source)))
+        outcomes = _sprint_outcomes(connection, project_id, sprint_id, items, closed_at) if closed else 0
+    _copies.pop(project_id, None)
+    return {"closed": closed, "stories": int(items["story_id"].nunique()) if len(items) else 0,
+            "outcomes_recorded": outcomes}
+
+
+def _sprint_outcomes(connection, project_id: str, sprint_id: str, items: pd.DataFrame, closed_at) -> int:
+    """Each story's latest prediction for this sprint (made before it closed) gets the sprint's outcome; one
+    already recorded for it is updated, since the platform's sprint is the record of what happened."""
+    known = items[items["done_in_sprint"].notna()].drop_duplicates("story_id", keep="last").set_index("story_id")
+    if known.empty:
+        return 0
+    predictions = connection.execute(
+        select(PredictionRecord.id, PredictionRecord.story_id).where(
+            PredictionRecord.project_id == project_id, PredictionRecord.sprint_id == sprint_id,
+            PredictionRecord.story_id.in_(known.index.tolist()),
+            PredictionRecord.created_at <= pd.Timestamp(closed_at).to_pydatetime())
+        .order_by(PredictionRecord.created_at)).all()
+    latest = {story: prediction for prediction, story in predictions}  # the last one per story
+    if not latest:
+        return 0
+    existing = dict(connection.execute(
+        select(OutcomeRecord.prediction_id, OutcomeRecord.id).where(
+            OutcomeRecord.prediction_id.in_(list(latest.values()))).order_by(OutcomeRecord.created_at)).all())
+    for story, prediction in latest.items():
+        row = known.loc[story]
+        values = {"completed_in_sprint": bool(row["done_in_sprint"]),
+                  "actual_story_points": None if pd.isna(row["points_at_close"]) else float(row["points_at_close"]),
+                  "reopened": bool(row["reopened"]) if not pd.isna(row["reopened"]) else False}
+        if prediction in existing:
+            connection.execute(update(OutcomeRecord).where(OutcomeRecord.id == existing[prediction]).values(**values))
+        else:
+            connection.execute(insert(OutcomeRecord).values(id=str(uuid.uuid4()), prediction_id=prediction,
+                                                            created_at=datetime.now(UTC), **values))
+    return len(latest)
+
+
+def remove_sprint(project_id: str, sprint_id: str) -> bool:
+    """Delete one sprint of the project and its stories (outcomes already recorded stay)."""
+    with db.engine.begin() as connection:
+        connection.execute(delete(HistoryItem).where(HistoryItem.project_id == project_id,
+                                                     HistoryItem.sprint_id == sprint_id))
+        gone = connection.execute(delete(HistorySprint).where(HistorySprint.project_id == project_id,
+                                                              HistorySprint.sprint_id == sprint_id)).rowcount
+    _copies.pop(project_id, None)
+    return bool(gone)
+
+
 # ------------------------------------------------------------------ the CSV import
 
 
@@ -336,15 +456,7 @@ def parse_csv(text: str) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
             if seen.nunique(dropna=False) > 1:
                 problem(int(rows[0]), column, f"sprint {sprint_id} has different values on rows "
                                               f"{', '.join(str(r) for r in rows)}")
-    start, end, closed = values["sprint_started_at"], values["sprint_planned_end"], values["sprint_closed_at"]
-    checks = [
-        (end <= start, "sprint_planned_end", "the sprint must end after it starts"),
-        (closed < start, "sprint_closed_at", "the sprint cannot close before it starts"),
-        (values["committed_at"] > closed, "committed_at", "committed after the sprint closed"),
-        (values["left_at"] < values["committed_at"], "left_at", "left the sprint before it was committed"),
-        (values["resolved_at"] < values["started_at"], "resolved_at", "resolved before work started"),
-    ]
-    for wrong, column, text in checks:
+    for wrong, column, text in date_checks(values):
         for row in frame.index[wrong.fillna(False)]:
             problem(int(row), column, text)
     if problems:

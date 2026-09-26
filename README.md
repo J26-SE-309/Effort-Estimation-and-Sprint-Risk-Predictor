@@ -104,10 +104,12 @@ The service applies the migrations in `backend/app/migrations` (Alembic) at star
 new migration: see [`backend/docs/migration-guide.md`](backend/docs/migration-guide.md) for what migrations are
 and the steps.
 
-Neon's free plan keeps 6 hours of history, and the feedback and outcomes are evaluation data, so back them up
-regularly: `cd backend; python -m app.backup` writes every table to
-`Datasets/effort-risk/backups/effort-db-<time>.jsonl.gz`, and `python -m app.backup --restore FILE` restores one
-into an empty database. The health check does not query a hosted database: the web app polls health every 15 s,
+Neon's free plan keeps 6 hours of history, and the feedback and outcomes are evaluation data, so they are backed
+up daily: the Windows scheduled task "Synapse effort database backup" runs `python -m app.backup --keep 30` from
+`backend/` at 21:00 (or when the laptop is next on), writing every table to
+`Datasets/effort-risk/backups/effort-db-<time>.jsonl.gz`, keeping the newest 30, and logging to `backup.log` there.
+Change or remove it in Task Scheduler. `python -m app.backup --restore FILE` restores a backup into an empty
+database. The health check does not query a hosted database: the web app polls health every 15 s,
 which would otherwise keep Neon from ever suspending (100 compute-hours a month on the free plan).
 
 ### API contract
@@ -124,7 +126,10 @@ once at start-up.
 | `GET /api/v1/models` | The arena's configurations with their leaderboard metrics (FR10) |
 | `GET / PUT / DELETE /api/v1/projects/{id}/pin` | Pin a configuration for a project, overriding the router (FR12) |
 | `POST /api/v1/feedback`, `POST /api/v1/outcomes` | A product owner's decision; what really happened (FR19) |
-| `GET / POST /api/v1/projects/{id}/history` | The team's sprint history, and importing it (see [Sprint history](#sprint-history)) |
+| `GET /api/v1/projects/{id}/predictions` | Past predictions, newest first, with the latest decision and outcome of each (filter by sprint or story; `limit`, `offset`) |
+| `GET /api/v1/predictions/{prediction_id}` | One prediction as it was sent, the feature values the models saw (FR21), its feedback and outcomes |
+| `GET /api/v1/projects/{id}/summary` | The project's predictions at a glance: risk levels, configurations, decisions, and accuracy against outcomes so far |
+| `GET / POST /api/v1/projects/{id}/history`, `PUT / DELETE .../sprints/{sprint_id}` | The team's sprint history (see [Sprint history](#sprint-history)) |
 
 NFR1 load test against a running service (10 users, each sending 50-story backlogs back to back):
 `python backend/loadtest.py`. In the container (`docker compose up`: 4 worker processes with one native thread
@@ -149,16 +154,23 @@ keep them in sync with `backend/app/schemas.py`.
 
 The models learned from each team's past sprints: velocity (points finished in the last 3 closed sprints), how
 much it varies, how often stories spill over or are reopened, and how long stories take (FR5). **The platform owns
-the sprints.** Until it serves them through an API, this service keeps copies of the sprint records in its own
-tables, each labelled with where it came from: `imported` (a CSV through the API), `tawos` (real TAWOS sprints,
-development data) or `synthetic` (made up for tests and demos, never used in any evaluation). `SOURCE` in
-`backend/app/history.py` is the one place that says where records come from: when the platform's API exists, a
-client returning the same record format replaces it, and the development data is deleted.
+the sprints** (starting, adding stories, closing); this service keeps the sprint records as the history its
+predictions use. The platform sends each sprint whenever it changes (`PUT .../sprints/{sprint_id}`). Every record
+is labelled with where it came from: `platform` (sent sprint by sprint), `imported` (a CSV through the API),
+`tawos` (real TAWOS sprints, development data) or `synthetic` (made up for tests and demos, never used in any
+evaluation); the development data is deleted once the platform sends real sprints.
 
 | Endpoint | What it does |
 |---|---|
 | `GET /api/v1/projects/{id}/history` | What the models see about the team now, whether it is still a cold start, and its sprints |
 | `POST /api/v1/projects/{id}/history` | Import the project's sprint history from a CSV (`text/csv`); replaces its records |
+| `PUT /api/v1/projects/{id}/sprints/{sprint_id}` | The platform's sprint as it is now (JSON, the same fields as the CSV); replaces that sprint only |
+| `DELETE /api/v1/projects/{id}/sprints/{sprint_id}` | Remove a sprint and its stories |
+
+When the platform sends a closed sprint, each story's latest prediction for that sprint gets its outcome (FR19:
+done or not, the final points), updated if the sprint is sent again; and a story sent without its spillover
+outcome (R1) gets it from `done_in_sprint` when this was its first sprint. Predictions must carry the platform's
+`sprint_id` for this.
 
 Every estimate fills the team and sprint context from the project's history; values the caller sends win, and
 `feature_sources` says which answered (`history` or `request`). After 3 closed sprints a team is no longer a cold
