@@ -22,6 +22,7 @@ dev = ["pytest>=8"]
 erp-export-tawos = "erp.extract.tawos_to_parquet:main"
 erp-profile-tawos = "erp.explore.profile_tawos:main"
 erp-build-timeline = "erp.snapshot.build_timeline:main"
+erp-build-snapshot = "erp.snapshot.build_snapshot:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]

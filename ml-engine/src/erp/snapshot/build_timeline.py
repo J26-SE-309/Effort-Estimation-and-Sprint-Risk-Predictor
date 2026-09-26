@@ -154,6 +154,7 @@ def build_report(stays, memberships, commitments, issues, projects, sprints, sen
     per_project = offsets.groupby(sprint_project.reindex(offsets.index)).agg(
         sprints="size", median="median", far=lambda s: (s.round().abs() >= 5).mean())
     far = per_project[(per_project["far"] >= 0.5) & (per_project["sprints"] >= 5)].sort_values("far", ascending=False)
+    far_text = ", ".join(f"{key} (median {median:+.0f} h)" for key, median in far["median"].items())
     copies = sprints.assign(Repository_ID=sprints["Project_ID"].map(projects.set_index("ID")["Repository_ID"]))
     copies = copies.groupby(["Repository_ID", "JiraID"])["Start_Date"].agg(["size", "nunique"])
     copies = copies[copies["size"] > 1]
@@ -165,7 +166,7 @@ def build_report(stays, memberships, commitments, issues, projects, sprints, sen
         "recorded close), the gap between the two is:", "",
         md_table(bands.value_counts(sort=False).rename_axis("Gap").reset_index(name="Sprints")), "",
         f"Most gaps are 0 or 1 hour (daylight saving). Projects where most gaps are 5 hours or more: "
-        f"{', '.join(f'{k} (median {row['median']:+.0f} h)' for k, row in far.iterrows())}. "
+        f"{far_text}. "
         f"Copies of one sprint stored under two projects also have different start dates in "
         f"{int((copies['nunique'] > 1).sum())} of {len(copies)} cases (by exactly 1 hour). "
         "So an issue that joins a sprint within the tolerance after its recorded start counts as planned, and one "

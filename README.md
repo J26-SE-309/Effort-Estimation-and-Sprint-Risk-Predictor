@@ -92,7 +92,7 @@ AgilePlatform/
 │   ├── TAWOS/TAWOS.sql          # TAWOS v1.1 MySQL dump, doi.org/10.5522/04/21308124 (4.1 GB)
 │   └── effort-risk/
 │       ├── tawos-raw/           # every TAWOS table as Parquet, plus _manifest.json
-│       └── interim/             # derived tables: sprint timelines, then the snapshot
+│       └── interim/             # derived tables: sprint timelines and the snapshot
 └── Effort-Estimation-and-Sprint-Risk-Predictor/   # this repository
 ```
 
@@ -121,10 +121,18 @@ AgilePlatform/
    .venv\Scripts\erp-build-timeline
    ```
 
-The TAWOS findings that shape the labelling and feature pipeline are in
-[`ml-engine/reports/tawos-profile.md`](ml-engine/reports/tawos-profile.md); the sprint timelines, the
-clock check behind their tolerance and worked examples are in
-[`ml-engine/reports/sprint-timeline.md`](ml-engine/reports/sprint-timeline.md).
+5. Build the point-in-time snapshot: one row per story, as it was when it was committed to its first sprint
+   (needs step 4):
+
+   ```powershell
+   .venv\Scripts\erp-build-snapshot
+   ```
+
+Each step writes a report to [`ml-engine/reports/`](ml-engine/reports/):
+[`tawos-profile.md`](ml-engine/reports/tawos-profile.md) (what TAWOS contains),
+[`sprint-timeline.md`](ml-engine/reports/sprint-timeline.md) (sprint histories, the clock check behind their
+tolerance, worked examples) and [`snapshot.md`](ml-engine/reports/snapshot.md) (the filtering log and the
+training rows).
 
 ## Synapse Platform Services
 
