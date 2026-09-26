@@ -100,9 +100,9 @@ feedback and outcomes (FR19) and pinned configurations (FR12).
 
 - **Tests** use an in-memory SQLite database and never touch either.
 
-The service applies the migrations in `backend/app/migrations` (Alembic) at start-up. After changing
-`app/tables.py`, add a migration against the local database: `cd backend; alembic revision --autogenerate -m
-"what changed"`, then check the generated file.
+The service applies the migrations in `backend/app/migrations` (Alembic) at start-up. Changing a table needs a
+new migration: see [`backend/docs/migration-guide.md`](backend/docs/migration-guide.md) for what migrations are
+and the steps.
 
 Neon's free plan keeps 6 hours of history, and the feedback and outcomes are evaluation data, so back them up
 regularly: `cd backend; python -m app.backup` writes every table to
