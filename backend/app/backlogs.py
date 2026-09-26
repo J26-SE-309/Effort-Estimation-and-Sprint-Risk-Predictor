@@ -95,15 +95,21 @@ TASKS = [
     ("Set up nightly database backups", "Back up the database every night and keep 14 days of backups."),
 ]
 
-# stories in the backlog, the share of each kind (KINDS order), the chance a story is blocked
+# How full the sprint is planned against the team's recent velocity (None: the team never estimates, so a fixed
+# number of stories), the share of each kind of story (KINDS order), and the chance a story is blocked. Only the
+# erratic team over-commits: the other sprints fit, so only its stories are told to reduce the scope.
 TEAMS = {
-    "SYN-NEW": (8, [0.4, 0.3, 0.1, 0.1, 0.1], 0.1),
-    "SYN-ONE": (10, [0.4, 0.3, 0.1, 0.1, 0.1], 0.1),
-    "SYN-TWO": (10, [0.35, 0.3, 0.15, 0.1, 0.1], 0.15),
-    "SYN-STEADY": (12, [0.5, 0.25, 0.05, 0.1, 0.1], 0.05),
-    "SYN-ERRATIC": (15, [0.15, 0.25, 0.35, 0.15, 0.1], 0.35),
-    "SYN-NOPOINTS": (8, [0.3, 0.3, 0.2, 0.1, 0.1], 0.15),
+    "SYN-NEW": (0.9, [0.4, 0.3, 0.1, 0.1, 0.1], 0.1),
+    "SYN-ONE": (0.9, [0.4, 0.3, 0.1, 0.1, 0.1], 0.1),
+    "SYN-TWO": (1.0, [0.35, 0.3, 0.15, 0.1, 0.1], 0.15),
+    "SYN-STEADY": (0.9, [0.5, 0.25, 0.05, 0.1, 0.1], 0.05),
+    "SYN-ERRATIC": (1.35, [0.15, 0.25, 0.35, 0.15, 0.1], 0.35),
+    "SYN-NOPOINTS": (None, [0.3, 0.3, 0.2, 0.1, 0.1], 0.15),
 }
+UNESTIMATED_STORIES = 8
+MAX_STORIES = 20
+MISFITS = 8  # stories in a row that do not fit before a sprint planned within its velocity is full
+REFERENCE = "2026-09-26T12:00:00Z"  # any moment: the closed sprints' velocities do not depend on it
 
 
 def _signals(rng: np.random.Generator, kind: str, story: dict) -> dict:
@@ -176,16 +182,49 @@ def _story(rng: np.random.Generator, story_id: str, kind: str, blocked: float, e
     return story
 
 
+def capacity(name: str) -> float | None:
+    """The team's recent velocity, as the service computes it from the team's synthetic history (app.devdata);
+    for a team without a closed sprint, the velocity it plans with."""
+    import pandas as pd
+    from erp.serving import history
+
+    from app.devdata import SYNTHETIC, synthetic
+
+    team, at = SYNTHETIC[name], pd.Timestamp(REFERENCE)
+    sprints, items = synthetic(name, team, at)
+    team_context, _ = history.context(sprints.assign(project_id=name), items.assign(project_id=name), name, at)
+    return team_context["velocity_mean"] or team.velocity
+
+
 def team_backlog(name: str) -> dict:
-    """The team's backlog for its running sprint (app.devdata: SYN-X-S<closed + 1>)."""
+    """The team's backlog for its running sprint (app.devdata: SYN-X-S<closed + 1>), planned to TEAMS' share
+    of the team's recent velocity: within it (a story that does not fit is left out, until MISFITS in a row do
+    not), or past it for an over-committed sprint."""
     from app.devdata import SYNTHETIC
 
-    size, shares, blocked = TEAMS[name]
+    load, shares, blocked = TEAMS[name]
     rng = np.random.default_rng(zlib.crc32(f"backlog {name}".encode()))
-    kinds = rng.choice(KINDS, size=size, p=shares)
+    target = load * capacity(name) if load else None
     used: dict[str, set[int]] = {}
-    stories = [_story(rng, f"{name}-B{i + 1}", str(kind), blocked, name != "SYN-NOPOINTS", used)
-               for i, kind in enumerate(kinds)]
+    stories: list[dict] = []
+    total, misfits = 0.0, 0
+    while len(stories) < MAX_STORIES:
+        story = _story(rng, f"{name}-B{len(stories) + 1}", str(rng.choice(KINDS, p=shares)), blocked, bool(load),
+                       used)
+        points = story["story_points"] or 0.0
+        if target is None:
+            stories.append(story)
+            if len(stories) == UNESTIMATED_STORIES:
+                break
+        elif load <= 1 and total + points > target:
+            misfits += 1
+            if misfits == MISFITS:
+                break
+        else:
+            stories.append(story)
+            total, misfits = total + points, 0
+            if load > 1 and total >= target:
+                break
     return {"_synthetic": LABEL, "project_id": name, "sprint_id": f"{name}-S{SYNTHETIC[name].closed + 1}",
             "stories": stories}
 

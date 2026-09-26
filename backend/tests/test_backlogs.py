@@ -64,8 +64,21 @@ def test_the_signals_follow_each_story():
         assert signals["unlinked_artifact_count"] == 3 - sum(traces)
         assert signals["invest_compliance_flags"]["independent"] == (story["blocker_count"] == 0)
         assert (signals["ac_completeness_score"] > 0) == bool(story["acceptance_criteria"])
-    assert len({s["title"] for s in backlogs.team_backlog("SYN-ERRATIC")["stories"]}) == \
-        backlogs.TEAMS["SYN-ERRATIC"][0]  # no story twice in one backlog
+    erratic = backlogs.team_backlog("SYN-ERRATIC")["stories"]
+    assert len({s["title"] for s in erratic}) == len(erratic)  # no story twice in one backlog
+
+
+def test_sprints_are_planned_against_the_teams_velocity():
+    """Only the erratic team over-commits; the other sprints fit, so only its stories are told to cut scope."""
+    for name, (load, _, _) in backlogs.TEAMS.items():
+        stories = backlogs.team_backlog(name)["stories"]
+        committed = sum(s["story_points"] or 0 for s in stories)
+        if load is None:
+            assert committed == 0 and len(stories) == backlogs.UNESTIMATED_STORIES
+        elif load <= 1:
+            assert 0.75 * load * backlogs.capacity(name) <= committed <= load * backlogs.capacity(name)
+        else:
+            assert committed >= load * backlogs.capacity(name)
 
 
 def test_requests_outside_the_contract_are_refused(client):

@@ -18,9 +18,9 @@ A test fails when the files and the generator disagree.
 
 | File | What it is for |
 |---|---|
-| `syn-new.json`, `syn-one.json`, `syn-two.json` | Teams with 0, 1 and 2 closed sprints: still cold starts |
-| `syn-steady.json` | A predictable team: mostly clear stories with acceptance criteria |
-| `syn-erratic.json` | An unpredictable team: many vague stories, more blockers |
+| `syn-new.json`, `syn-one.json`, `syn-two.json` | Teams with 0, 1 and 2 closed sprints: still cold starts. Their sprints fit their velocity |
+| `syn-steady.json` | A predictable team: mostly clear stories with acceptance criteria, about 90% of its velocity |
+| `syn-erratic.json` | An unpredictable team: many vague stories, more blockers, and an over-committed sprint (about 150% of its velocity) |
 | `syn-nopoints.json` | A team that never estimates: no story points |
 | `syn-steady-without-components.json` | The steady backlog without any component signal: the service's own stand-ins (FR17) |
 | `syn-steady-component-1-only.json` | Only Component 1's signals: partly degraded (FR17) |
