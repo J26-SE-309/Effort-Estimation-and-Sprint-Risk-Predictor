@@ -56,3 +56,18 @@ def test_confidence_score_parts_penalties_and_bands():
     # plain split conformal: every relative width is the same, so E carries no information
     flat = conf.Confidence().fit(np.full(50, 1.36), ["A"])
     assert flat.effort_certainty(np.array([1.36, 1.36])).tolist() == [0.5, 0.5]
+
+
+def test_tempering_power_is_saved_and_reloaded(tmp_path):
+    frame, _ = synthetic_stories(n=800, seed=5)
+    truth = np.log1p(frame["story_points"].to_numpy(float))
+    predicted = truth + np.random.default_rng(5).normal(0, 0.3, 800)
+    intervals = AdaptiveIntervals(category_levels(frame)).fit_difficulty(frame[:400], predicted[:400], truth[:400])
+    raw = intervals.difficulty(frame[400:], predicted[400:])
+    intervals.power = 0.5
+    assert np.allclose(intervals.difficulty(frame[400:], predicted[400:]), raw ** 0.5)
+    intervals.fit(frame[400:600], truth[400:600], predicted[400:600])
+    again = load_intervals(intervals.save(tmp_path), tmp_path, category_levels(frame))
+    assert again.power == 0.5
+    assert all(np.array_equal(a, b) for a, b in zip(again.bounds(frame[600:], predicted[600:], 0.9),
+                                                     intervals.bounds(frame[600:], predicted[600:], 0.9), strict=True))

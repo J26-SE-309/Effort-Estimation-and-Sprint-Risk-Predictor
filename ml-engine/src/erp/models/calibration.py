@@ -114,6 +114,10 @@ class AdaptiveIntervals:
     story, never from the calibration split. On the calibration split the scores |actual - prediction| /
     difficulty are sorted and, for coverage c, q is the ceil((n + 1) c)-th smallest; the interval is
     prediction +- q x difficulty. The coverage guarantee is the same as before; the width now follows the story.
+
+    A difficulty model is noisy, and its extreme predictions overshoot (easy-looking stories then get too
+    narrow a range, hard-looking ones too wide), so the difficulty is tempered: raised to a power between 0.25
+    and 1, chosen on the training stories' last inner fold (see erp.arena.intervals.choose_power).
     """
 
     method = "normalized split conformal on log(1 + story points)"
@@ -126,6 +130,7 @@ class AdaptiveIntervals:
         self.levels = levels
         self.booster = None
         self.floor = 0.0
+        self.power = 1.0
         self.quantiles: dict[str, float] = {}
 
     def inputs(self, stories, log_points):
@@ -144,7 +149,7 @@ class AdaptiveIntervals:
         return self
 
     def difficulty(self, stories, log_points) -> np.ndarray:
-        return np.maximum(self.booster.predict(self.inputs(stories, log_points)), self.floor)
+        return np.maximum(self.booster.predict(self.inputs(stories, log_points)), self.floor) ** self.power
 
     def fit(self, stories, log_actual, log_points, coverages=(0.8, 0.9)) -> "AdaptiveIntervals":
         scores = np.sort(np.abs(np.asarray(log_actual, float) - np.asarray(log_points, float))
@@ -162,7 +167,7 @@ class AdaptiveIntervals:
     def save(self, directory) -> dict:
         self.booster.save_model(directory / self.FILE)
         return {"method": self.method, "difficulty_model": self.FILE, "difficulty_params": self.DIFFICULTY,
-                "floor": self.floor, "quantiles": self.quantiles}
+                "floor": self.floor, "power": self.power, "quantiles": self.quantiles}
 
     @classmethod
     def load(cls, directory, spec: dict, levels: dict) -> "AdaptiveIntervals":
@@ -171,6 +176,7 @@ class AdaptiveIntervals:
         intervals = cls(levels)
         intervals.booster = lgb.Booster(model_file=str(directory / spec["difficulty_model"]))
         intervals.floor, intervals.quantiles = spec["floor"], dict(spec["quantiles"])
+        intervals.power = spec.get("power", 1.0)
         return intervals
 
 

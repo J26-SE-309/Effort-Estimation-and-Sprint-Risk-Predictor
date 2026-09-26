@@ -29,22 +29,48 @@ from erp.models.bundle import INTERVAL_COVERAGES
 from erp.models.calibration import AdaptiveIntervals, Calibrator, ConformalIntervals, coverage_and_width
 
 REPORT = paths.REPO_ROOT / "ml-engine" / "reports" / "confidence.md"
+POWERS = (1.0, 0.75, 0.5, 0.25)  # how strongly the difficulty model's scores are tempered
 
 
-def inner_fold_effort(name: str, manifest: dict) -> pd.Series | None:
-    """The effort model's inner-fold predictions (log points) for training stories, or None if not kept."""
+def inner_fold_effort(name: str, manifest: dict) -> pd.DataFrame | None:
+    """The effort model's inner-fold predictions for training stories (columns effort_log, fold), or None."""
     if name == "stack":
         bases = sorted(set(manifest["effort"]["bases"]) | set(manifest["risk"]["bases"]))
         oof = {b: pd.read_parquet(WORK_DIR / "oof" / f"{b}.parquet") for b in bases}
         rows = oof[bases[0]].index
         log_points, _ = predictor.combine(manifest, {b: (oof[b].loc[rows, "effort_log"].to_numpy(),
                                                          oof[b].loc[rows, "risk_raw"].to_numpy()) for b in bases})
-        return pd.Series(log_points, index=rows)
+        return pd.DataFrame({"effort_log": log_points, "fold": oof[bases[0]].loc[rows, "fold"]}, index=rows)
     path = WORK_DIR / "oof" / f"{name}.parquet"
     if path.exists():
-        return pd.read_parquet(path)["effort_log"]
+        return pd.read_parquet(path)[["effort_log", "fold"]]
     path = WORK_DIR / "oof" / f"{name}-effort.parquet"  # DistilBERT keeps one file per task
-    return pd.read_parquet(path)["prediction"] if path.exists() else None
+    if path.exists():
+        return pd.read_parquet(path).rename(columns={"prediction": "effort_log"})[["effort_log", "fold"]]
+    return None
+
+
+def choose_power(arena: ArenaData, oof: pd.DataFrame, y: np.ndarray) -> tuple[float, dict]:
+    """The tempering power with the most even 80% coverage across easy, middle and hard stories.
+
+    Judged on training stories only: a difficulty model fitted on the earlier inner folds' predictions is
+    scored on the last fold's (its stories are the latest training sprints).
+    """
+    last = oof["fold"].to_numpy() == oof["fold"].max()
+    rows = arena.frame.index.get_indexer(oof.index)
+    stories, log_points, actual = arena.frame.iloc[rows], oof["effort_log"].to_numpy(), y[rows]
+    probe = AdaptiveIntervals(arena.levels).fit_difficulty(stories[~last], log_points[~last], actual[~last])
+    raw = probe.difficulty(stories[last], log_points[last])
+    errors = np.abs(actual[last] - log_points[last])
+    thirds = pd.qcut(pd.Series(raw).rank(method="first"), 3, labels=False).to_numpy()
+    spreads = {}
+    for power in POWERS:
+        scale = raw ** power
+        scores = np.sort(errors / scale)
+        inside = errors <= scores[int(np.ceil((len(scores) + 1) * 0.8)) - 1] * scale
+        coverage = pd.Series(inside).groupby(thirds).mean()
+        spreads[power] = round(float(coverage.max() - coverage.min()), 4)
+    return min(spreads, key=spreads.get), spreads
 
 
 def fit(arena: ArenaData, name: str) -> None:
@@ -58,10 +84,13 @@ def fit(arena: ArenaData, name: str) -> None:
     cal = arena.mask("cal")
     oof = inner_fold_effort(name, manifest)
     if oof is not None:
+        power, spreads = choose_power(arena, oof, y)
         intervals = AdaptiveIntervals(arena.levels).fit_difficulty(
-            arena.frame.loc[oof.index], oof.to_numpy(), y[arena.frame.index.get_indexer(oof.index)])
+            arena.frame.loc[oof.index], oof["effort_log"].to_numpy(), y[arena.frame.index.get_indexer(oof.index)])
+        intervals.power = power
         intervals.fit(arena.frame[cal], y[cal], log_points[cal], INTERVAL_COVERAGES)
-        spec = intervals.save(directory)
+        spec = intervals.save(directory) | {"power_choice": {
+            "rule": "most even 80% coverage over difficulty thirds, on the last inner fold", "spread": spreads}}
     else:
         intervals, spec = ConformalIntervals.from_dict(split), split
     low, high = intervals.bounds(arena.frame[cal], log_points[cal], 0.8)
@@ -109,7 +138,8 @@ def evaluate(arena: ArenaData, name: str) -> dict:
     actual = stories["story_points"].to_numpy(float)
     loaded = predictor.load(MODELS_DIR / name)
     split = ConformalIntervals.from_dict(manifest["effort"]["intervals_split"])
-    result = {"name": name, "adaptive": manifest["effort"]["intervals"].get("method") == AdaptiveIntervals.method}
+    result = {"name": name, "adaptive": manifest["effort"]["intervals"].get("method") == AdaptiveIntervals.method,
+              "power": manifest["effort"]["intervals"].get("power")}
     for label, intervals in (("split", split), ("adaptive", loaded.intervals)):
         for coverage in INTERVAL_COVERAGES:
             low, high = intervals.bounds(stories, log_points, coverage)
@@ -160,6 +190,7 @@ def build_report(results: list[dict], winner: str | None) -> str:
                      "80%: adaptive": f"{r['adaptive_coverage_0.8']:.1%} / {r['adaptive_width_0.8']:.1f}",
                      "90%: split": f"{r['split_coverage_0.9']:.1%} / {r['split_width_0.9']:.1f}",
                      "90%: adaptive": f"{r['adaptive_coverage_0.9']:.1%} / {r['adaptive_width_0.9']:.1f}",
+                     "Tempering power": f"{r['power']:g}" if r["power"] else "–",
                      "Difficulty vs real error (Spearman)": f"{r['difficulty_rho']:.2f}" if "difficulty_rho" in r
                      else "–"})
     third_rows = []
@@ -187,6 +218,14 @@ def build_report(results: list[dict], winner: str | None) -> str:
     cold = main["cold"]
     cold_rows = [{"Team history": "fewer than 3 closed sprints" if k else "3 or more", "Stories": int(v["stories"]),
                   "MAE (points)": f"{v['mae']:.2f}", "Brier": f"{v['brier']:.3f}"} for k, v in cold.iterrows()]
+    if len(cold_rows) > 1:
+        cold_text = ["Does the cold-start penalty point the right way? The same configuration's test stories by team "
+                     "history:", "", md_table(pd.DataFrame(cold_rows)), ""]
+    else:
+        cold_text = ["The cold-start penalty cannot be checked here: every test story's team already had at least "
+                     f"{conf.COLD_START_SPRINTS} closed sprints (the test split is each project's newest sprints). It "
+                     "rests on the fact that a new team's history features are empty or based on one or two sprints; "
+                     "the pilot with student teams (Phase 6) can check it.", ""]
     return "\n".join([
         "# Adaptive intervals and the confidence score", "",
         "Generated by `erp-fit-intervals`. Test split only (the newest 20% of each project's sprints).", "",
@@ -197,7 +236,10 @@ def build_report(results: list[dict], winner: str | None) -> str:
         "margin by a difficulty model that predicts how far off the effort model tends to be for a story like this "
         "one. It learns from the effort model's inner-fold predictions on training stories (made by models that "
         "never saw them) and uses the story's features and predicted size; the calibration split then fixes the "
-        "margin so the 80% and 90% guarantees hold as before.", "",
+        "margin so the 80% and 90% guarantees hold as before. A noisy difficulty model overshoots at the "
+        "extremes, so its scores are tempered by a power (1, 0.75, 0.5 or 0.25) chosen for each configuration on "
+        "its training stories' last inner fold: the power that gives the most even coverage over easy, middle and "
+        "hard stories.", "",
         "## 2. Coverage and width (coverage / mean width in points)", "",
         md_table(pd.DataFrame(rows)), "",
         "NFR3 asks for coverage within 5 points of the nominal level. The Spearman correlation shows whether the "
@@ -221,8 +263,7 @@ def build_report(results: list[dict], winner: str | None) -> str:
         md_table(pd.DataFrame(order_rows)), "",
         "E vs error below 0 means stories with more effort certainty really had smaller errors; R vs Brier below 0 "
         "means firmer risk calls really were more often right.", "",
-        "Does the cold-start penalty point the right way? The same configuration's test stories by team history:",
-        "", md_table(pd.DataFrame(cold_rows)), "",
+        *cold_text,
         "## 4. For the supervisor", "",
         "- The formula, the weights (E and R count equally), the penalties (0.7, 0.7, 0.85), the cold-start "
         "threshold (3 sprints) and the band limits (0.6, 0.35) are starting values to agree on.",
