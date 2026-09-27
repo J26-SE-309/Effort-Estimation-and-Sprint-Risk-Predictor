@@ -86,6 +86,24 @@ def test_learners_reload_to_identical_predictions(name, task, tmp_path):
     assert "story_points" not in x.columns or task == "risk"
 
 
+@pytest.mark.parametrize("name", list(LEARNERS))
+def test_learners_answer_for_a_project_they_never_saw(name):
+    """A new project's key is not among the training levels, so its category is missing: every learner still
+    answers (CatBoost used to reject missing categories, which failed every platform project)."""
+    if name in NEEDS:
+        pytest.importorskip(NEEDS[name])
+    frame, text = synthetic_stories()
+    train, cal = (frame["split"] == "train").to_numpy(), (frame["split"] == "cal").to_numpy()
+    levels, columns = category_levels(frame), [f"sbert_{i}" for i in range(10)]
+    x = design(frame, text[:, :10], "risk", text_columns=columns, levels=levels)
+    y = frame["at_risk"].astype(int)
+    learner = LEARNERS[name]("risk").fit(x[train], y[train], x[cal], y[cal], PARAMS[name])
+    new = design(frame[~train].assign(project_key="NEWPROJECT"), text[~train, :10], "risk", text_columns=columns,
+                 levels=levels)
+    assert new["project_key"].isna().all()
+    assert np.isfinite(learner.predict(new)).all()
+
+
 def test_tabular_prep_one_hot_missing_flags_and_json():
     x = pd.DataFrame({"a": [1.0, np.nan, 3.0], "project_key": pd.Categorical(["P", "Q", "P"])})
     prep = TabularPrep(scale=False).fit(x)

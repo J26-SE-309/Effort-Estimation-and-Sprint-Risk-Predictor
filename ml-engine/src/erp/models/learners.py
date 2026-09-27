@@ -164,7 +164,11 @@ class CatBoostLearner:
 
     @staticmethod
     def _table(x: pd.DataFrame) -> pd.DataFrame:
-        return x.assign(**{c: x[c].astype(str) for c in CATEGORICAL if c in x.columns})
+        """Categories as text. A value outside the training levels (a project the arena never saw) is missing, which
+        CatBoost rejects (pandas 3 keeps NaN through astype(str)); as the text "unseen" it is a category CatBoost
+        never met, which is what it is. Training has no missing categories, so trained models are unaffected."""
+        return x.assign(**{c: x[c].astype(object).where(x[c].notna(), "unseen").astype(str)
+                           for c in CATEGORICAL if c in x.columns})
 
     def fit(self, x, y, x_val, y_val, params: dict, seed: int = SEED) -> "CatBoostLearner":
         from catboost import CatBoostClassifier, CatBoostRegressor

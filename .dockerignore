@@ -11,4 +11,3 @@ backend/tests
 ml-engine/tests
 ml-engine/reports
 ml-engine/models/sbert-lightgbm-v1
-ml-engine/models/**/distilbert/*.safetensors
