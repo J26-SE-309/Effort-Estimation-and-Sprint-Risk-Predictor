@@ -3,7 +3,7 @@
 The rule that keeps recommendations honest: an action is suggested only when its planning factor is among the
 reasons driving this story's prediction, so every recommendation points back to the explanation next to it.
   split_story              the effort estimate is in the extra-large band; or "Story size and content" is a reason
-                           and the estimate is in the large band
+                           and the estimate, or the team's own, is in the large band
   refine_requirement       "Requirement ambiguity" is a reason for the risk; or "Story size and content" is, and
                            the story says almost nothing (under SHORT_DESCRIPTION words)
   add_acceptance_criteria  "Acceptance-criteria gaps" is a reason for the risk and the criteria are not complete
@@ -30,6 +30,8 @@ SHORT_DESCRIPTION = 15  # words: a story this short leaves the team guessing wha
 COMPLETE_CRITERIA = 0.8  # acceptance criteria at least this complete leave nothing to add
 HIGH_SPILLOVER = 0.2  # a team spilling over more than 1 story in 5 recently
 COLD_START_SPRINTS = 3  # as the confidence score's cold start (erp.models.confidence)
+OWN_FACTOR = {"resolve_dependency": "Dependencies and blockers", "refine_requirement": "Requirement ambiguity",
+              "reduce_sprint_scope": "Sprint load and timing"}
 ACTION_OF = {  # per factor, the actions that may apply; every one that applies to the story is suggested
     "Requirement ambiguity": ["refine_requirement"],
     "Acceptance-criteria gaps": ["add_acceptance_criteria", "resolve_dependency"],
@@ -65,12 +67,15 @@ def for_story(prediction: dict, story: pd.Series, risk_reasons: list[dict]) -> l
             "that can each be finished within one sprint.")})
     if prediction["sprint_risk_level"] == "low":
         return out
+    factors = {reason["factor"] for reason in risk_reasons}
     for reason in risk_reasons:
         factor = reason["factor"]
         for action in ACTION_OF.get(factor, []):
             taken = {r["action"] for r in out}
             if action in taken or (action == "plan_buffer" and "reduce_sprint_scope" in taken):
                 continue
+            if action != ACTION_OF[factor][0] and OWN_FACTOR.get(action) in factors - {factor}:
+                continue  # it comes with the factor it belongs to
             message = _message(action, story, factor, prediction)
             if message:
                 out.append({"action": action, "triggered_by": factor, "message": message})
@@ -80,10 +85,15 @@ def for_story(prediction: dict, story: pd.Series, risk_reasons: list[dict]) -> l
 def _message(action: str, story: pd.Series, factor: str, prediction: dict) -> str | None:
     """The recommendation's text, or None when the story gives nothing to act on."""
     if action == "split_story":
-        if prediction["effort_category"] != "large":  # extra-large is suggested above, whatever the reasons
+        own = _number(story.get("story_points"))
+        if prediction["effort_category"] == "large":  # extra-large is suggested above, whatever the reasons
+            size = f"Estimated at about {prediction['predicted_story_points']:.0f} points"
+        elif own is not None and effort_category(own) in ("large", "extra_large"):
+            size = f"The team estimates it at {own:.0f} points"
+        else:
             return None
-        return (f"Estimated at about {prediction['predicted_story_points']:.0f} points, a large story for one sprint: "
-                "the bigger a story, the more often it spills over. Split it if it holds separate parts.")
+        return (f"{size}, a large story for one sprint: the bigger a story, the more often it spills over. Split it "
+                "if it holds separate parts.")
     if action == "refine_requirement" and factor == "Story size and content":
         length = _number(story.get("description_length"))
         if length is None or length >= SHORT_DESCRIPTION:

@@ -217,3 +217,19 @@ def test_what_if_changes_the_features_each_action_would_change():
     assert changed.iloc[0]["has_linked_tests"] != 1  # one at a time
     text = np.arange(4).reshape(2, 2)
     assert whatif.take(text, origins, changed.index).tolist() == [[0, 1]] * 3
+
+
+def test_an_action_comes_with_its_own_factor_and_the_team_estimate_counts_for_splitting():
+    risky = {"predicted_story_points": 4, "interval_low": 2, "interval_high": 8, "effort_category": "medium",
+             "sprint_risk_level": "high"}
+    reasons = [{"factor": "Acceptance-criteria gaps"}, {"factor": "Dependencies and blockers"},
+               {"factor": "Story size and content"}]
+    story = _story(has_acceptance_criteria=True, ac_completeness_score=1.0, blocker_count=1, story_points=8,
+                   description_length=40)
+    out = recommend.for_story(risky, story, reasons)
+    assert [(r["action"], r["triggered_by"]) for r in out] == [
+        ("resolve_dependency", "Dependencies and blockers"), ("split_story", "Story size and content")]
+    assert out[1]["message"].startswith("The team estimates it at 8 points")
+    small = _story(story_points=3, description_length=40)
+    assert recommend.for_story(risky, small, [{"factor": "Story size and content"}]) == []
+
