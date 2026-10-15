@@ -32,6 +32,19 @@ def test_estimate_returns_one_real_prediction_per_story_in_order(client):
     assert body["selection_mode"] == "auto" and body["configuration_id"] == "fasttext-lightgbm"
 
 
+def test_each_story_gets_its_own_estimate_as_if_predicted_alone(client):
+    small = _story("S-1", title="Fix typo on the login page")
+    big = _story("S-2", title="Rewrite the scheduler to support multi-tenant resource quotas with preemption",
+                 description="Large redesign of the allocator, master and agents; needs a design document, a data "
+                             "migration and extensive tests.")
+    both = client.post("/api/v1/estimate", json={"project_id": "MESOS", "stories": [small, big]}).json()
+    alone = [client.post("/api/v1/estimate", json={"project_id": "MESOS", "stories": [s]}).json()["predictions"][0]
+             for s in (small, big)]
+    points = [p["predicted_story_points"] for p in both["predictions"]]
+    assert points[0] != points[1]
+    assert points == [p["predicted_story_points"] for p in alone]
+
+
 def test_missing_upstream_groups_are_flagged_as_degraded(client):
     payload = {"project_id": "SYN", "stories": [
         _story("S-1"),

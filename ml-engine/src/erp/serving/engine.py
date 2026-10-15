@@ -105,7 +105,7 @@ class Engine:
             predictions.append({
                 "story_id": str(story_id),
                 "project_id": project_id,
-                "predicted_story_points": round(points, 2),
+                "predicted_story_points": round(story["predicted_story_points"], 2),
                 "effort_category": story["effort_category"],
                 "prediction_interval": {"lower": round(story["interval_low"], 2),
                                         "upper": round(story["interval_high"], 2)},
