@@ -26,6 +26,7 @@ from erp.features import text as words
 EFFORT_BANDS = {"small": 2.5, "medium": 6.5, "large": 10.5}  # between Fibonacci steps: <=2, 3-5, 8, >=13
 OVERLOAD_RATIO = 1.1  # committed points / recent velocity above this is 'well above 1' (ML guide 4.9)
 SHORT_DESCRIPTION = 15  # words: a story this short leaves the team guessing what it means
+COMPLETE_CRITERIA = 0.8  # acceptance criteria at least this complete leave nothing to add
 HIGH_SPILLOVER = 0.2  # a team spilling over more than 1 story in 5 recently
 COLD_START_SPRINTS = 3  # as the confidence score's cold start (erp.models.confidence)
 ACTION_OF = {  # per factor, the actions to try in order; the first that applies to the story is suggested
@@ -95,8 +96,11 @@ def _message(action: str, story: pd.Series, factor: str, prediction: dict) -> st
     if action == "add_acceptance_criteria":
         if not story["has_acceptance_criteria"]:
             return "The story has no acceptance criteria. Add testable criteria (e.g. Given / When / Then)."
-        return (f"The acceptance criteria look incomplete (completeness {story['ac_completeness_score']:.0%}). "
-                "Add the missing cases.")
+        completeness = _number(story.get("ac_completeness_score"))
+        if completeness is not None and completeness >= COMPLETE_CRITERIA:
+            return None  # nothing missing to add: the factor's push comes from elsewhere in the group (INVEST)
+        shown = "" if completeness is None else f" (completeness {completeness:.0%})"
+        return f"The acceptance criteria look incomplete{shown}. Add the missing cases."
     if action == "create_tests":
         if story["has_linked_tests"] == 1:
             return None

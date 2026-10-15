@@ -156,6 +156,11 @@ def test_story_size_team_history_and_late_additions_have_actions_too():
     late = recommend.for_story(medium, _story(added_mid_sprint=True), [{"factor": "Sprint load and timing"}])
     assert [r["action"] for r in late] == ["reduce_sprint_scope"] and "after the sprint started" in late[0]["message"]
     assert recommend.for_story(medium, _story(), [{"factor": "Story metadata"}]) == []
+    criteria = [{"factor": "Acceptance-criteria gaps"}]
+    complete = _story(has_acceptance_criteria=True, ac_completeness_score=1.0)
+    assert recommend.for_story(medium, complete, criteria) == []  # nothing to add
+    partial = recommend.for_story(medium, _story(has_acceptance_criteria=True, ac_completeness_score=0.4), criteria)
+    assert "incomplete (completeness 40%)" in partial[0]["message"]
 
 
 def test_sprint_simulation():
