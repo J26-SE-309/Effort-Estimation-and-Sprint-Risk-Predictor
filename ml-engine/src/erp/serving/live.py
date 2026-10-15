@@ -28,7 +28,8 @@ INVEST = ("independent", "valuable", "testable")
 
 # Where each feature group came from, per story: component (Components 1-3), request (the caller), history (the
 # project's stored sprint records, erp.serving.history), text (computed here from the story), proxy (our stand-in
-# for a component), missing (unknown, the models see NaN).
+# for a component), missing (unknown, the models see NaN). A caller passing made-up signals in place of the
+# components' says so in upstream.source (e.g. "synthetic"), and that name is reported instead of "component".
 SOURCES = ("component", "request", "history", "text", "proxy", "missing")
 
 
@@ -71,7 +72,7 @@ def build(project_id: str, stories: list[dict], team: dict | None = None,
     for name in QUALITY_FIELDS:
         f[name] = [u.get(name) if u.get(name) is not None else found.at[i, name] for i, u in zip(index, upstream,
                                                                                                     strict=True)]
-    sources["requirement_quality"] = ["component" if any(u.get(n) is not None for n in QUALITY_FIELDS) else "proxy"
+    sources["requirement_quality"] = [_component(u) if any(u.get(n) is not None for n in QUALITY_FIELDS) else "proxy"
                                       for u in upstream]
 
     # Dependencies (from the request; 0 when not given)
@@ -94,7 +95,7 @@ def build(project_id: str, stories: list[dict], team: dict | None = None,
     f["unlinked_artifact_count"] = [u["unlinked_artifact_count"] if u.get("unlinked_artifact_count") is not None
                                     else value for u, value in zip(upstream, 3 - traces.sum(axis=1, min_count=3),
                                                                    strict=True)]
-    sources["traceability"] = ["component" if any(u.get(n) is not None for n in TRACE_FIELDS)
+    sources["traceability"] = [_component(u) if any(u.get(n) is not None for n in TRACE_FIELDS)
                                else "request" if bool(ok) else "missing" for u, ok in zip(upstream, all_known,
                                                                                          strict=True)]
 
@@ -113,7 +114,7 @@ def build(project_id: str, stories: list[dict], team: dict | None = None,
     for flag in INVEST:
         f[f"invest_{flag}"] = [_invest(u.get("invest_compliance_flags"), flag, proxy_invest.at[i, flag])
                                for i, u in zip(index, upstream, strict=True)]
-    sources["acceptance_criteria"] = ["component" if any(u.get(n) is not None for n in AC_FIELDS) else "proxy"
+    sources["acceptance_criteria"] = [_component(u) if any(u.get(n) is not None for n in AC_FIELDS) else "proxy"
                                       for u in upstream]
 
     # Team history (the caller's summary of the team's past sprints, when known)
@@ -154,6 +155,12 @@ def build(project_id: str, stories: list[dict], team: dict | None = None,
         features[name] = features[name].astype(float)  # True / False / unknown
     features["title"], features["description_text"] = base["title"], base["description_text"]
     return features, sources
+
+
+def _component(upstream: dict) -> str:
+    """The source of a group the request's upstream signals answered: the components, unless the caller named
+    another producer (e.g. synthetic development data)."""
+    return upstream.get("source") or "component"
 
 
 def _invest(flags: dict | None, name: str, fallback: bool) -> bool:

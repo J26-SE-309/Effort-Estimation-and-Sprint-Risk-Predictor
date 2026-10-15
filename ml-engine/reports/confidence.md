@@ -17,6 +17,7 @@ Plain split conformal (Phase 3) adds the same margin to every story on the log s
 | SBERT + LightGBM | adaptive | 80.4% / 6.1 | 80.3% / 6.0 | 90.8% / 7.7 | 90.5% / 7.6 | 0.75 | 0.22 |
 | SBERT + CatBoost | adaptive | 80.2% / 6.3 | 81.0% / 6.3 | 91.4% / 8.3 | 91.4% / 8.2 | 0.75 | 0.24 |
 | SBERT + multi-task MLP (M3) | adaptive | 81.5% / 6.2 | 79.4% / 6.0 | 92.0% / 8.1 | 91.4% / 7.9 | 0.75 | 0.18 |
+| Fine-tuned DistilBERT | adaptive | 81.2% / 6.5 | 81.9% / 6.8 | 90.9% / 8.9 | 91.0% / 9.0 | 0.75 | 0.21 |
 | Stacked ensemble | adaptive | 80.6% / 6.1 | 79.3% / 5.9 | 91.0% / 7.8 | 90.4% / 7.5 | 0.75 | 0.22 |
 
 NFR3 asks for coverage within 5 points of the nominal level. The Spearman correlation shows whether the difficulty model ranks stories by how wrong the effort model really was on the test split (0 = no relation).
@@ -39,6 +40,8 @@ Coverage of the 80% interval in thirds of the test stories, from easiest to hard
 | SBERT + CatBoost | adaptive | 82.5% | 79.3% | 81.2% |
 | SBERT + multi-task MLP (M3) | split | 88.6% | 79.7% | 76.3% |
 | SBERT + multi-task MLP (M3) | adaptive | 77.6% | 78.4% | 82.3% |
+| Fine-tuned DistilBERT | split | 89.7% | 80.3% | 73.5% |
+| Fine-tuned DistilBERT | adaptive | 82.2% | 80.7% | 82.9% |
 | Stacked ensemble | split | 88.8% | 80.3% | 72.7% |
 | Stacked ensemble | adaptive | 79.7% | 77.9% | 80.3% |
 
@@ -69,6 +72,7 @@ The bands are honest only if the accuracy is ordered: High better than Medium, M
 | SBERT + LightGBM | 265 / 1628 / 1440 | yes | yes | yes | -0.20 | -0.40 |
 | SBERT + CatBoost | 204 / 1676 / 1453 | yes | yes | yes | -0.22 | -0.39 |
 | SBERT + multi-task MLP (M3) | 97 / 1701 / 1535 | yes | yes | yes | -0.15 | -0.29 |
+| Fine-tuned DistilBERT | 94 / 1675 / 1564 | yes | yes | yes | -0.23 | -0.34 |
 | Stacked ensemble | 261 / 1639 / 1433 | yes | yes | yes | -0.19 | -0.41 |
 
 E vs error below 0 means stories with more effort certainty really had smaller errors; R vs Brier below 0 means firmer risk calls really were more often right.

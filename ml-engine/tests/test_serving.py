@@ -136,6 +136,33 @@ def test_recommendations_only_for_reasons_the_model_gave_and_only_when_actionabl
         "small", "small", "medium", "medium", "large", "extra_large"]
 
 
+def test_story_size_team_history_and_late_additions_have_actions_too():
+    risky = {"predicted_story_points": 8, "interval_low": 4, "interval_high": 13, "effort_category": "large",
+             "sprint_risk_level": "medium"}
+    size, team = [{"factor": "Story size and content"}], [{"factor": "Team delivery history"}]
+    assert [r["action"] for r in recommend.for_story(risky, _story(description_length=40), size)] == ["split_story"]
+    medium = {**risky, "predicted_story_points": 3, "effort_category": "medium"}
+    short = recommend.for_story(medium, _story(description_length=6), size)
+    assert [r["action"] for r in short] == ["refine_requirement"]
+    assert "only 6 words" in short[0]["message"]
+    assert recommend.for_story(medium, _story(description_length=40), size) == []  # nothing to act on
+    cold = recommend.for_story(medium, _story(history_sprints=1), team)
+    assert [r["action"] for r in cold] == ["plan_buffer"] and "only 1 closed sprint on record" in cold[0]["message"]
+    slipping = _story(history_sprints=8, historical_spillover_rate=0.35)
+    assert "spilled over 35%" in recommend.for_story(medium, slipping, team)[0]["message"]
+    assert recommend.for_story(medium, _story(history_sprints=8, historical_spillover_rate=0.1), team) == []
+    overloaded = _story(history_sprints=8, sprint_committed_points=40, story_points=2, team_velocity_rolling=30)
+    assert [r["action"] for r in recommend.for_story(medium, overloaded, team)] == ["reduce_sprint_scope"]
+    late = recommend.for_story(medium, _story(added_mid_sprint=True), [{"factor": "Sprint load and timing"}])
+    assert [r["action"] for r in late] == ["reduce_sprint_scope"] and "after the sprint started" in late[0]["message"]
+    assert recommend.for_story(medium, _story(), [{"factor": "Story metadata"}]) == []
+    criteria = [{"factor": "Acceptance-criteria gaps"}]
+    complete = _story(has_acceptance_criteria=True, ac_completeness_score=1.0)
+    assert recommend.for_story(medium, complete, criteria) == []  # nothing to add
+    partial = recommend.for_story(medium, _story(has_acceptance_criteria=True, ac_completeness_score=0.4), criteria)
+    assert "incomplete (completeness 40%)" in partial[0]["message"]
+
+
 def test_sprint_simulation():
     log_points = np.log1p([3, 5, 8, 2])
     high = np.expm1(log_points + 0.5)
@@ -150,3 +177,59 @@ def test_sprint_simulation():
     assert sprint.simulate(log_points, high, probability, 10, 4) == tight  # fixed seed: reproducible
     advice = recommend.sprint_level(tight)
     assert advice and advice[0]["action"] == "reduce_sprint_scope"
+
+
+def test_criteria_gaps_from_open_blockers_suggest_resolving_them():
+    risky = {"predicted_story_points": 3, "interval_low": 1, "interval_high": 6, "effort_category": "medium",
+             "sprint_risk_level": "high"}
+    criteria = [{"factor": "Acceptance-criteria gaps"}]
+    blocked = _story(has_acceptance_criteria=True, ac_completeness_score=1.0, blocker_count=2)
+    assert [r["action"] for r in recommend.for_story(risky, blocked, criteria)] == ["resolve_dependency"]
+    both = _story(blocker_count=1)  # no criteria and a blocker: both actions
+    assert [r["action"] for r in recommend.for_story(risky, both, criteria)] == ["add_acceptance_criteria",
+                                                                               "resolve_dependency"]
+
+
+def test_what_if_changes_the_features_each_action_would_change():
+    from erp.serving import whatif
+
+    story = _story(blocker_count=2, dep_out_degree=1, sprint_committed_points=40, story_points=5,
+                   team_velocity_rolling=30, traceability_coverage_pct=1 / 3, unlinked_artifact_count=2,
+                   description_length=6, history_sprints=8)
+    prediction = {"predicted_story_points": 8}
+    assert whatif.change("resolve_dependency", story, prediction, "x") == {
+        "blocker_count": 0, "dep_out_degree": 0, "invest_independent": True}
+    scope = whatif.change("reduce_sprint_scope", story, prediction, "Team delivery history")
+    assert scope["sprint_committed_points"] == 25 and scope["commitment_to_velocity_ratio"] == pytest.approx(25 / 30)
+    assert whatif.change("plan_buffer", story, prediction, "x")["sprint_committed_points"] == pytest.approx(20.5)
+    assert whatif.change("reduce_sprint_scope", _story(), prediction, "x") is None  # no velocity to compare with
+    tests = whatif.change("create_tests", story, prediction, "x")
+    assert tests["traceability_coverage_pct"] == pytest.approx(2 / 3) and tests["unlinked_artifact_count"] == 1
+    assert whatif.change("refine_requirement", story, prediction, "x")["description_length"] == 40
+    assert whatif.change("split_story", story, prediction, "x") == {"story_points": 4}
+
+    features = pd.DataFrame([story, _story()], index=pd.Index(["A", "B"], name="story_id"))
+    advice = [[{"action": "resolve_dependency", "triggered_by": "x"}, {"action": "create_tests", "triggered_by": "x"}],
+              [{"action": "plan_buffer", "triggered_by": "x"}]]  # B: nothing to express
+    changed, origins, keys = whatif.scenarios(features, advice, [prediction, prediction])
+    assert keys == [(0, "resolve_dependency"), (0, "create_tests"), (0, None)] and origins == [0, 0, 0]
+    assert changed.iloc[2]["blocker_count"] == 0 and changed.iloc[2]["has_linked_tests"] == 1  # all at once
+    assert changed.iloc[0]["has_linked_tests"] != 1  # one at a time
+    text = np.arange(4).reshape(2, 2)
+    assert whatif.take(text, origins, changed.index).tolist() == [[0, 1]] * 3
+
+
+def test_an_action_comes_with_its_own_factor_and_the_team_estimate_counts_for_splitting():
+    risky = {"predicted_story_points": 4, "interval_low": 2, "interval_high": 8, "effort_category": "medium",
+             "sprint_risk_level": "high"}
+    reasons = [{"factor": "Acceptance-criteria gaps"}, {"factor": "Dependencies and blockers"},
+               {"factor": "Story size and content"}]
+    story = _story(has_acceptance_criteria=True, ac_completeness_score=1.0, blocker_count=1, story_points=8,
+                   description_length=40)
+    out = recommend.for_story(risky, story, reasons)
+    assert [(r["action"], r["triggered_by"]) for r in out] == [
+        ("resolve_dependency", "Dependencies and blockers"), ("split_story", "Story size and content")]
+    assert out[1]["message"].startswith("The team estimates it at 8 points")
+    small = _story(story_points=3, description_length=40)
+    assert recommend.for_story(risky, small, [{"factor": "Story size and content"}]) == []
+

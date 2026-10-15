@@ -25,6 +25,9 @@ class UpstreamSignals(BaseModel):
     traceability_coverage_pct: float | None = Field(default=None, ge=0, le=1)
     unlinked_artifact_count: int | None = Field(default=None, ge=0)
     has_linked_tests: bool | None = None
+    source: str | None = Field(default=None, max_length=20, description=(
+        "Who produced the signals when not the components themselves, e.g. 'synthetic' for made-up development "
+        "data; reported back as the groups' source"))
 
 
 class StoryInput(BaseModel):
@@ -72,6 +75,9 @@ class EstimateRequest(BaseModel):
     team_context: TeamContext | None = None
     sprint_context: SprintContext | None = None
     pinned_configuration: str | None = Field(default=None, description="Answer with this configuration (FR12)")
+    focus_story_ids: list[str] | None = Field(default=None, description=(
+        "Predict (and record) only these stories; the others are the rest of the sprint, counted as its committed "
+        "work. All stories when left out"))
 
 
 class CompareRequest(EstimateRequest):
@@ -99,19 +105,44 @@ RecommendationAction = Literal[
     "create_tests",
     "resolve_dependency",
     "reduce_sprint_scope",
+    "plan_buffer",
 ]
+
+
+class RiskEffect(BaseModel):
+    """The risk the models expect once an action is done: the story's features changed as the action would, and
+    predicted again by the same configuration (ml-engine erp/serving/whatif.py)."""
+
+    spillover_probability: float = Field(ge=0, le=1)
+    sprint_risk_level: Literal["low", "medium", "high"]
 
 
 class Recommendation(BaseModel):
     action: RecommendationAction
     message: str
     triggered_by: str
+    expected_effect: RiskEffect | None = Field(default=None, description="The risk once this action is done")
 
 
 class ModelConfiguration(BaseModel):
     encoder: str
     learner: str
     formulation: Literal["single_task", "multi_task", "chained"]
+
+
+class ConfidencePenalty(BaseModel):
+    reason: Literal["cold_start", "unseen_project", "missing_group"]
+    factor: float = Field(gt=0, le=1, description="What data support is multiplied by")
+    detail: str
+
+
+class ConfidenceBreakdown(BaseModel):
+    """confidence_score = data_support x (effort_certainty + risk_certainty) / 2 (ml-engine/reports/confidence.md)."""
+
+    effort_certainty: float = Field(ge=0, le=1, description="E: share of past estimates with a wider interval")
+    risk_certainty: float = Field(ge=0, le=1, description="R: |2p - 1|, how far the probability is from a coin flip")
+    data_support: float = Field(ge=0, le=1, description="S: 1, lowered by each penalty")
+    penalties: list[ConfidencePenalty] = []
 
 
 class Prediction(BaseModel):
@@ -135,6 +166,9 @@ class Prediction(BaseModel):
     interval_coverage: float = Field(default=0.8, description="Share of stories whose points fall in the interval")
     at_risk: bool = Field(default=False, description="The risk passes the threshold chosen for recall >= 0.70")
     confidence_level: Literal["high", "medium", "low"] = Field(default="low", description="Band shown to users")
+    confidence_breakdown: ConfidenceBreakdown | None = Field(default=None, description="How the score came about")
+    risk_if_all_done: RiskEffect | None = Field(default=None, description=(
+        "The risk once every suggested action is done (only when there are two or more)"))
     configuration_id: str = ""
     selection_reason: str = ""
     degraded_feature_groups: list[str] = Field(default=[], description="Groups served by a proxy or missing (FR17)")
@@ -375,6 +409,11 @@ class PredictionPage(BaseModel):
     project_id: str
     predictions: list[PredictionBrief] = Field(description="Newest first")
     next_offset: int | None = Field(default=None, description="Pass as offset for the next page; empty at the end")
+
+
+class PredictionsDeleted(BaseModel):
+    project_id: str
+    deleted: int = Field(description="Predictions removed, with their feedback and outcomes")
 
 
 class PredictionDetail(BaseModel):

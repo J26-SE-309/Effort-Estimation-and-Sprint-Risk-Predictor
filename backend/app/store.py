@@ -19,7 +19,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.util.exc import CommandError
-from sqlalchemy import distinct, func, inspect, select, text
+from sqlalchemy import delete, distinct, func, inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import db
@@ -232,15 +232,52 @@ def _outcome_brief(outcome) -> dict | None:
             "reopened": outcome.reopened}
 
 
-def predictions_page(project_id: str, sprint_id: str | None = None, story_id: str | None = None, limit: int = 50,
-                     offset: int = 0) -> tuple[list[dict], int | None]:
-    """A project's predictions, newest first, each with its latest feedback and outcome; and the next offset."""
+def _conditions(project_id: str, sprint_id: str | None = None, story_id: str | None = None,
+                created_from: datetime | None = None, created_to: datetime | None = None,
+                risk_level: str | None = None, confidence_level: str | None = None,
+                configuration_id: str | None = None, decision: str | None = None, outcome: str | None = None) -> list:
+    """The WHERE conditions of a filtered prediction list. decision: the latest one (accept, adjust, reject) or
+    none; outcome: pending (not known yet), done (finished in its sprint) or spilled."""
+    where = [PredictionRecord.project_id == project_id]
+    if sprint_id is not None:
+        where.append(PredictionRecord.sprint_id == sprint_id)
+    if story_id is not None:
+        where.append(PredictionRecord.story_id == story_id)
+    if created_from is not None:
+        where.append(PredictionRecord.created_at >= created_from)
+    if created_to is not None:
+        where.append(PredictionRecord.created_at <= created_to)
+    if risk_level is not None:
+        where.append(PredictionRecord.prediction["sprint_risk_level"].as_string() == risk_level)
+    if confidence_level is not None:
+        where.append(PredictionRecord.prediction["confidence_level"].as_string() == confidence_level)
+    if configuration_id is not None:
+        where.append(PredictionRecord.configuration_id == configuration_id)
+    if decision is not None:
+        decided = select(FeedbackRecord.id).where(FeedbackRecord.prediction_id == PredictionRecord.id)
+        if decision == "none":
+            where.append(~decided.exists())
+        else:
+            latest = (select(FeedbackRecord.decision).where(FeedbackRecord.prediction_id == PredictionRecord.id)
+                      .order_by(FeedbackRecord.created_at.desc()).limit(1).scalar_subquery())
+            where.append(latest == decision)
+    if outcome is not None:
+        known = select(OutcomeRecord.id).where(OutcomeRecord.prediction_id == PredictionRecord.id)
+        if outcome == "pending":
+            where.append(~known.exists())
+        else:
+            latest = (select(OutcomeRecord.completed_in_sprint)
+                      .where(OutcomeRecord.prediction_id == PredictionRecord.id)
+                      .order_by(OutcomeRecord.created_at.desc()).limit(1).scalar_subquery())
+            where.append(latest == (outcome == "done"))
+    return where
+
+
+def predictions_page(project_id: str, limit: int = 50, offset: int = 0, **filters) -> tuple[list[dict], int | None]:
+    """A project's predictions, newest first, each with its latest feedback and outcome; and the next offset.
+    filters: see _conditions."""
     with _reading() as session:
-        query = select(PredictionRecord).where(PredictionRecord.project_id == project_id)
-        if sprint_id is not None:
-            query = query.where(PredictionRecord.sprint_id == sprint_id)
-        if story_id is not None:
-            query = query.where(PredictionRecord.story_id == story_id)
+        query = select(PredictionRecord).where(*_conditions(project_id, **filters))
         records = session.scalars(query.order_by(PredictionRecord.created_at.desc(), PredictionRecord.id)
                                   .offset(offset).limit(limit + 1)).all()
         more, records = len(records) > limit, records[:limit]
@@ -263,6 +300,22 @@ def predictions_page(project_id: str, sprint_id: str | None = None, story_id: st
                 "outcome": _outcome_brief(outcomes.get(record.id)),
             })
     return page, (offset + limit if more else None)
+
+
+def delete_predictions(project_id: str, prediction_ids: list[str] | None = None) -> int:
+    """Remove the project's predictions (only the given ones, or all), with their feedback and outcomes."""
+    with _reading() as session:
+        query = select(PredictionRecord.id).where(PredictionRecord.project_id == project_id)
+        if prediction_ids is not None:
+            query = query.where(PredictionRecord.id.in_(prediction_ids))
+        ids = list(session.scalars(query))
+        for start in range(0, len(ids), 500):  # IN lists of a sensible size
+            chunk = ids[start:start + 500]
+            session.execute(delete(FeedbackRecord).where(FeedbackRecord.prediction_id.in_(chunk)))
+            session.execute(delete(OutcomeRecord).where(OutcomeRecord.prediction_id.in_(chunk)))
+            session.execute(delete(PredictionRecord).where(PredictionRecord.id.in_(chunk)))
+        session.commit()
+    return len(ids)
 
 
 def prediction_detail(prediction_id: str) -> dict | None:

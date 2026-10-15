@@ -119,14 +119,15 @@ once at start-up.
 
 | Endpoint | What it does |
 |---|---|
-| `POST /api/v1/estimate` | Effort, interval, risk, confidence, reasons and recommendations for every story (Appendix C) |
+| `POST /api/v1/estimate` | Effort, interval, risk, confidence (with its breakdown), reasons and recommendations for every story (Appendix C), each recommendation with the risk the models expect once it is done; `focus_story_ids` predicts only some stories, the others counting as the sprint's committed work |
 | `POST /api/v1/risk` | The same, plus the sprint-level risk: Monte Carlo of committed effort against capacity (FR16) |
 | `POST /api/v1/recommend` | Only the recommendations, per story and for the sprint (FR15) |
 | `POST /api/v1/compare` | The same backlog through several configurations side by side (FR12) |
 | `GET /api/v1/models` | The arena's configurations with their leaderboard metrics (FR10) |
 | `GET / PUT / DELETE /api/v1/projects/{id}/pin` | Pin a configuration for a project, overriding the router (FR12) |
 | `POST /api/v1/feedback`, `POST /api/v1/outcomes` | A product owner's decision; what really happened (FR19) |
-| `GET /api/v1/projects/{id}/predictions` | Past predictions, newest first, with the latest decision and outcome of each (filter by sprint or story; `limit`, `offset`) |
+| `GET /api/v1/projects/{id}/predictions` | Past predictions, newest first, with the latest decision and outcome of each (filter by sprint, story, time, risk, confidence, model, decision or outcome; `limit`, `offset`) |
+| `DELETE /api/v1/projects/{id}/predictions` | Remove predictions from the log with their feedback and outcomes: the `prediction_id`s given, or all of the project's |
 | `GET /api/v1/predictions/{prediction_id}` | One prediction as it was sent, the feature values the models saw (FR21), its feedback and outcomes |
 | `GET /api/v1/projects/{id}/summary` | The project's predictions at a glance: risk levels, configurations, decisions, and accuracy against outcomes so far |
 | `GET / POST /api/v1/projects/{id}/history`, `PUT / DELETE .../sprints/{sprint_id}` | The team's sprint history (see [Sprint history](#sprint-history)) |
