@@ -16,7 +16,7 @@ import pandas as pd
 from erp.arena.predictor import Predictor, finish
 from erp.features import catalog
 from erp.models import confidence as trust
-from erp.serving import explain, live, recommend, sprint
+from erp.serving import explain, live, recommend, sprint, whatif
 from erp.serving.router import Router
 
 GROUP_NAMES = {  # catalogue groups -> the names the API reports (FR5's feature groups, FR17)
@@ -88,13 +88,19 @@ class Engine:
         commit = (manifest.get("code") or {}).get("commit", "")[:7]
         version = f"{manifest['arena']}/{config}" + (f"@{commit}" if commit else "")
         now = datetime.now(UTC).isoformat(timespec="seconds")
+        stories, advice = [], []
+        for i in range(len(features)):
+            row = out.iloc[i]
+            points = float(row["predicted_story_points"])
+            stories.append({"predicted_story_points": points, "effort_category": recommend.effort_category(points),
+                            "interval_low": float(row["interval_0.8_low"]),
+                            "interval_high": float(row["interval_0.8_high"]), "sprint_risk_level": row["risk_level"]})
+            advice.append(recommend.for_story(stories[i], features.iloc[i], risk_reasons[i]))
+        effects = _effects(model, features, text, missing, stories, advice)
         predictions = []
         for i, story_id in enumerate(features.index):
             row = out.iloc[i]
-            points = float(row["predicted_story_points"])
-            story = {"predicted_story_points": points, "effort_category": recommend.effort_category(points),
-                     "interval_low": float(row["interval_0.8_low"]), "interval_high": float(row["interval_0.8_high"]),
-                     "sprint_risk_level": row["risk_level"]}
+            story = stories[i]
             used = sources.iloc[i]
             predictions.append({
                 "story_id": str(story_id),
@@ -112,7 +118,8 @@ class Engine:
                 "confidence_breakdown": _breakdown(model, row, features.iloc[i], int(missing[i])),
                 "key_risk_reasons": [{"factor": r["factor"], "direction": "increases", "weight": r["share"]}
                                      for r in risk_reasons[i]],
-                "recommendations": recommend.for_story(story, features.iloc[i], risk_reasons[i]),
+                "recommendations": _by_effect(advice[i], effects, i, float(row["spillover_probability"])),
+                "risk_if_all_done": effects.get((i, None)),
                 "model_configuration": configuration,
                 "configuration_id": config,
                 "selection_mode": mode,
@@ -145,6 +152,24 @@ class Engine:
                                                                   "latency_p95") if k in metrics}})
         return {"arena": board["arena"], "pooled_winner": self.router.pooled_winner, "weights": board["weights"],
                 "configurations": sorted(summaries, key=lambda s: -s["composite"])}
+
+
+def _effects(model, features: pd.DataFrame, text, missing, stories: list[dict], advice: list[list[dict]]) -> dict:
+    """{(story position, action or None for all of them): the risk expected once done} (erp.serving.whatif): the
+    changed stories go through the configuration in one more pass."""
+    changed, origins, keys = whatif.scenarios(features, advice, stories)
+    if not keys:
+        return {}
+    out = model.predict(changed, whatif.take(text, origins, changed.index),
+                        missing_groups=np.asarray(missing)[origins])
+    return {key: {"spillover_probability": round(float(out["spillover_probability"].iloc[n]), 4),
+                  "sprint_risk_level": out["risk_level"].iloc[n]} for n, key in enumerate(keys)}
+
+
+def _by_effect(advice: list[dict], effects: dict, i: int, probability: float) -> list[dict]:
+    """The story's recommendations with their expected effect, the one expected to lower the risk most first."""
+    out = [{**rec, "expected_effect": effects.get((i, rec["action"]))} for rec in advice]
+    return sorted(out, key=lambda rec: (rec["expected_effect"] or {}).get("spillover_probability", probability))
 
 
 def _breakdown(model, row: pd.Series, story: pd.Series, missing: int) -> dict | None:

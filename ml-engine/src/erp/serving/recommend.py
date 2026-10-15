@@ -6,9 +6,10 @@ reasons driving this story's prediction, so every recommendation points back to 
                            and the estimate is in the large band
   refine_requirement       "Requirement ambiguity" is a reason for the risk; or "Story size and content" is, and
                            the story says almost nothing (under SHORT_DESCRIPTION words)
-  add_acceptance_criteria  "Acceptance-criteria gaps" is a reason for the risk
+  add_acceptance_criteria  "Acceptance-criteria gaps" is a reason for the risk and the criteria are not complete
   create_tests             "Test and traceability gaps" is a reason for the risk
-  resolve_dependency       "Dependencies and blockers" is a reason, and the story really has dependencies
+  resolve_dependency       "Dependencies and blockers" is a reason, or "Acceptance-criteria gaps" is (its INVEST
+                           'independent' flag is about open blockers), and the story really has dependencies
   reduce_sprint_scope      "Sprint load and timing" or "Team delivery history" is a reason, and the sprint is
                            committed well above the team's recent velocity; or "Sprint load and timing" is, and the
                            story was added after the sprint started
@@ -29,14 +30,14 @@ SHORT_DESCRIPTION = 15  # words: a story this short leaves the team guessing wha
 COMPLETE_CRITERIA = 0.8  # acceptance criteria at least this complete leave nothing to add
 HIGH_SPILLOVER = 0.2  # a team spilling over more than 1 story in 5 recently
 COLD_START_SPRINTS = 3  # as the confidence score's cold start (erp.models.confidence)
-ACTION_OF = {  # per factor, the actions to try in order; the first that applies to the story is suggested
+ACTION_OF = {  # per factor, the actions that may apply; every one that applies to the story is suggested
     "Requirement ambiguity": ["refine_requirement"],
-    "Acceptance-criteria gaps": ["add_acceptance_criteria"],
+    "Acceptance-criteria gaps": ["add_acceptance_criteria", "resolve_dependency"],
     "Test and traceability gaps": ["create_tests"],
     "Dependencies and blockers": ["resolve_dependency"],
     "Story size and content": ["split_story", "refine_requirement"],
     "Sprint load and timing": ["reduce_sprint_scope"],
-    # an overloaded sprint is the team's history at work; otherwise the team's record calls for some slack
+    # an overloaded sprint is the team's history at work; otherwise (only) the team's record calls for some slack
     "Team delivery history": ["reduce_sprint_scope", "plan_buffer"],
 }
 
@@ -67,12 +68,12 @@ def for_story(prediction: dict, story: pd.Series, risk_reasons: list[dict]) -> l
     for reason in risk_reasons:
         factor = reason["factor"]
         for action in ACTION_OF.get(factor, []):
-            if any(r["action"] == action for r in out):
-                break
+            taken = {r["action"] for r in out}
+            if action in taken or (action == "plan_buffer" and "reduce_sprint_scope" in taken):
+                continue
             message = _message(action, story, factor, prediction)
             if message:
                 out.append({"action": action, "triggered_by": factor, "message": message})
-                break
     return out
 
 

@@ -75,6 +75,23 @@ def test_the_confidence_score_says_what_lowered_it(client):
     assert [p["reason"] for p in warm["penalties"]] == ["unseen_project"] and warm["data_support"] == 0.7
 
 
+def test_each_action_says_what_it_is_expected_to_do_to_the_risk(client):
+    story = _story("S-1", description="Make the search fast and user-friendly, etc.", blocker_count=2,
+                   dep_out_degree=2, story_points=8)
+    team = {**TEAM, "velocity_mean": 10}
+    prediction = client.post("/api/v1/estimate", json={"project_id": "SYN", "stories": [
+        story, _story("S-2", story_points=8)], "team_context": team, "sprint_context": {"length_days": 14},
+        "focus_story_ids": ["S-1"]}).json()["predictions"][0]
+    assert prediction["sprint_risk_level"] != "low" and prediction["recommendations"]
+    effects = [rec["expected_effect"] for rec in prediction["recommendations"]]
+    assert all(e is None or (0 <= e["spillover_probability"] <= 1 and e["sprint_risk_level"] in
+                             ("low", "medium", "high")) for e in effects)
+    resolve = next(r for r in prediction["recommendations"] if r["action"] == "resolve_dependency")
+    assert resolve["expected_effect"] is not None
+    if sum(e is not None for e in effects) > 1:
+        assert prediction["risk_if_all_done"]["spillover_probability"] <= prediction["spillover_probability"]
+
+
 def test_focus_stories_are_predicted_with_the_rest_of_the_sprint_as_context(client):
     backlog = _backlog(4)
     whole = client.post("/api/v1/estimate", json={"project_id": "SYN", "stories": backlog,

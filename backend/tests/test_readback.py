@@ -75,3 +75,46 @@ def test_reading_back_without_a_database_answers_503(client, monkeypatch):
     for path in ("/api/v1/projects/TEAM/predictions", f"/api/v1/predictions/{prediction['prediction_id']}",
                  "/api/v1/projects/TEAM/summary"):
         assert client.get(path).status_code == 503
+
+
+def test_predictions_are_filtered_by_time_level_model_decision_and_outcome(client):
+    a, b = _estimate(client, _stories("A", "B"))
+    (c,) = client.post("/api/v1/estimate", json={"project_id": "TEAM", "stories": _stories("C"),
+                                                 "pinned_configuration": "tfidf-rf"}).json()["predictions"]
+    client.post("/api/v1/feedback", json={"prediction_id": a["prediction_id"], "decision": "accept"})
+    client.post("/api/v1/feedback", json={"prediction_id": a["prediction_id"], "decision": "reject"})
+    client.post("/api/v1/outcomes", json={"prediction_id": b["prediction_id"], "completed_in_sprint": True})
+
+    def ids(**params) -> list[str]:
+        listed = client.get("/api/v1/projects/TEAM/predictions", params=params).json()["predictions"]
+        return sorted(p["story_id"] for p in listed)
+
+    assert ids(decision="reject") == ["A"] and ids(decision="accept") == []  # the latest decision counts
+    assert ids(decision="none") == ["B", "C"]
+    assert ids(outcome="done") == ["B"] and ids(outcome="spilled") == [] and ids(outcome="pending") == ["A", "C"]
+    assert ids(configuration_id="tfidf-rf") == ["C"]
+    assert "A" in ids(risk_level=a["sprint_risk_level"])
+    assert "C" in ids(confidence_level=c["confidence_level"])
+    assert ids(created_from="2000-01-01T00:00:00Z") == ["A", "B", "C"]
+    assert ids(created_to="2000-01-01T00:00:00Z") == []
+    assert client.get("/api/v1/projects/TEAM/predictions", params={"decision": "maybe"}).status_code == 422
+
+
+def test_predictions_are_deleted_one_by_one_or_all_at_once(client):
+    a, b, c = _estimate(client, _stories("A", "B", "C"))
+    _estimate(client, _stories("X"), project="OTHER")
+    client.post("/api/v1/feedback", json={"prediction_id": a["prediction_id"], "decision": "accept"})
+    gone = client.delete("/api/v1/projects/TEAM/predictions", params={"prediction_id": [a["prediction_id"],
+                                                                                         b["prediction_id"]]})
+    assert gone.json() == {"project_id": "TEAM", "deleted": 2}
+    assert client.get(f"/api/v1/predictions/{a['prediction_id']}").status_code == 404
+    listed = client.get("/api/v1/projects/TEAM/predictions").json()["predictions"]
+    assert [p["story_id"] for p in listed] == ["C"]
+    # another project's prediction is never removed through this one
+    other = client.get("/api/v1/projects/OTHER/predictions").json()["predictions"][0]["prediction_id"]
+    assert client.delete("/api/v1/projects/TEAM/predictions", params={"prediction_id": other}).json()["deleted"] == 0
+    assert client.delete("/api/v1/projects/TEAM/predictions").json()["deleted"] == 1
+    assert client.get("/api/v1/projects/TEAM/predictions").json()["predictions"] == []
+    assert len(client.get("/api/v1/projects/OTHER/predictions").json()["predictions"]) == 1
+    with store.db.SessionLocal() as session:
+        assert session.query(store.FeedbackRecord).count() == 0

@@ -12,6 +12,9 @@ await): a busy worker process then accepts no new connection, and the kernel han
 concurrent requests and the others idled (NFR1 missed: p95 2.3 s with 4 workers on Linux).
 """
 
+from datetime import datetime
+from typing import Annotated, Literal
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -33,6 +36,7 @@ from app.schemas import (
     PinRequest,
     PredictionDetail,
     PredictionPage,
+    PredictionsDeleted,
     ProjectSummary,
     RecommendResponse,
     Recorded,
@@ -257,15 +261,41 @@ def _unavailable(error: Exception) -> HTTPException:
 
 
 @router.get("/projects/{project_id}/predictions", response_model=PredictionPage)
-def list_predictions(project_id: str, sprint_id: str | None = None, story_id: str | None = None,
-                     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)) -> PredictionPage:
+def list_predictions(
+    project_id: str, sprint_id: str | None = None, story_id: str | None = None,
+    created_from: Annotated[datetime | None, Query(description="Made at or after this time")] = None,
+    created_to: Annotated[datetime | None, Query(description="Made at or before this time")] = None,
+    risk_level: Literal["low", "medium", "high"] | None = None,
+    confidence_level: Literal["low", "medium", "high"] | None = None,
+    configuration_id: str | None = None,
+    decision: Literal["accept", "adjust", "reject", "none"] | None = Query(
+        None, description="The latest decision on it; none: not reviewed yet"),
+    outcome: Literal["pending", "done", "spilled"] | None = Query(
+        None, description="pending: not known yet; done: finished in its sprint; spilled: not finished"),
+    limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
+) -> PredictionPage:
     """The project's past predictions, newest first, each with the latest decision on it and its outcome. Filter
-    by sprint or story; page with offset (next_offset)."""
+    by sprint, story, time, risk, confidence, model, decision or outcome; page with offset (next_offset)."""
     try:
-        page, next_offset = store.predictions_page(project_id, sprint_id, story_id, limit, offset)
+        page, next_offset = store.predictions_page(
+            project_id, limit, offset, sprint_id=sprint_id, story_id=story_id, created_from=created_from,
+            created_to=created_to, risk_level=risk_level, confidence_level=confidence_level,
+            configuration_id=configuration_id, decision=decision, outcome=outcome)
     except store.DatabaseUnavailable as error:
         raise _unavailable(error) from error
     return PredictionPage(project_id=project_id, predictions=page, next_offset=next_offset)
+
+
+@router.delete("/projects/{project_id}/predictions", response_model=PredictionsDeleted)
+def delete_predictions(project_id: str, prediction_id: Annotated[list[str] | None, Query(
+        description="The predictions to remove (repeat the parameter); all of the project's when left out")] = None,
+                       ) -> PredictionsDeleted:
+    """Remove predictions from the log, with their feedback and outcomes. This cannot be undone."""
+    try:
+        deleted = store.delete_predictions(project_id, prediction_id)
+    except store.DatabaseUnavailable as error:
+        raise _unavailable(error) from error
+    return PredictionsDeleted(project_id=project_id, deleted=deleted)
 
 
 @router.get("/predictions/{prediction_id}", response_model=PredictionDetail)
