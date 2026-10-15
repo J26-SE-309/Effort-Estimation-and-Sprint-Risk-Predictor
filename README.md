@@ -119,7 +119,7 @@ once at start-up.
 
 | Endpoint | What it does |
 |---|---|
-| `POST /api/v1/estimate` | Effort, interval, risk, confidence, reasons and recommendations for every story (Appendix C) |
+| `POST /api/v1/estimate` | Effort, interval, risk, confidence (with its breakdown), reasons and recommendations for every story (Appendix C); `focus_story_ids` predicts only some stories, the others counting as the sprint's committed work |
 | `POST /api/v1/risk` | The same, plus the sprint-level risk: Monte Carlo of committed effort against capacity (FR16) |
 | `POST /api/v1/recommend` | Only the recommendations, per story and for the sprint (FR15) |
 | `POST /api/v1/compare` | The same backlog through several configurations side by side (FR12) |

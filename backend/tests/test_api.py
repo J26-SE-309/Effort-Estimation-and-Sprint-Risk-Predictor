@@ -49,6 +49,50 @@ def test_missing_upstream_groups_are_flagged_as_degraded(client):
     assert "traceability" not in predictions[1]["feature_groups_used"]
 
 
+def test_synthetic_upstream_signals_are_reported_as_synthetic(client):
+    signals = {"ambiguity_score": 0.2, "ac_completeness_score": 0.8, "has_linked_tests": True,
+               "traceability_coverage_pct": 0.67, "unlinked_artifact_count": 1, "source": "synthetic"}
+    prediction = client.post("/api/v1/estimate", json={"project_id": "SYN", "stories": [
+        _story("S-1", upstream=signals)]}).json()["predictions"][0]
+    for group in ("requirement_quality", "acceptance_criteria", "traceability"):
+        assert prediction["feature_sources"][group] == "synthetic"
+        assert group in prediction["feature_groups_used"]
+
+
+def test_the_confidence_score_says_what_lowered_it(client):
+    cold = client.post("/api/v1/estimate", json={"project_id": "SYN", "stories": [_story("S-1")]}).json()[
+        "predictions"][0]
+    parts = cold["confidence_breakdown"]
+    assert [p["reason"] for p in parts["penalties"]] == ["cold_start", "unseen_project", "missing_group"]
+    assert parts["penalties"][2]["detail"].startswith("2 feature group(s)")  # traceability, sprint context
+    assert parts["data_support"] == pytest.approx(0.7 * 0.7 * 0.85**2, abs=1e-3)
+    assert cold["confidence_score"] == pytest.approx(
+        parts["data_support"] * (parts["effort_certainty"] + parts["risk_certainty"]) / 2, abs=1e-3)
+    signals = {"traceability_coverage_pct": 0.67, "unlinked_artifact_count": 1, "has_linked_tests": True}
+    warm = client.post("/api/v1/estimate", json={"project_id": "SYN", "team_context": TEAM, "stories": [
+        _story("S-1", upstream=signals)], "sprint_context": {"length_days": 14}}).json()["predictions"][0][
+        "confidence_breakdown"]
+    assert [p["reason"] for p in warm["penalties"]] == ["unseen_project"] and warm["data_support"] == 0.7
+
+
+def test_focus_stories_are_predicted_with_the_rest_of_the_sprint_as_context(client):
+    backlog = _backlog(4)
+    whole = client.post("/api/v1/estimate", json={"project_id": "SYN", "stories": backlog,
+                                                   "team_context": TEAM}).json()["predictions"]
+    focus = client.post("/api/v1/estimate", json={"project_id": "SYN", "stories": backlog, "team_context": TEAM,
+                                                   "focus_story_ids": ["S-2"]}).json()["predictions"]
+    assert [p["story_id"] for p in focus] == ["S-2"]
+    assert focus[0]["spillover_probability"] == whole[2]["spillover_probability"]
+    # only the focus story is recorded, with the rest of the sprint (1 + 2 + 5 points) as committed work
+    recorded = client.get("/api/v1/projects/SYN/predictions", params={"story_id": "S-2"}).json()["predictions"]
+    assert len(recorded) == 2
+    seen = client.get(f"/api/v1/predictions/{focus[0]['prediction_id']}").json()["features"]
+    assert seen["sprint_committed_points"] == 8
+    unknown = client.post("/api/v1/estimate", json={"project_id": "SYN", "stories": backlog,
+                                                     "focus_story_ids": ["S-9"]})
+    assert unknown.status_code == 422
+
+
 def test_reasons_and_recommendations_follow_the_explanation(client):
     story = _story("S-1", description="Make the search fast and user-friendly, etc.", blocker_count=2,
                    dep_out_degree=2)

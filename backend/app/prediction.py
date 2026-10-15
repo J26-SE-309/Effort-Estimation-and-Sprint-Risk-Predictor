@@ -44,5 +44,6 @@ def engine_arguments(request: EstimateRequest) -> dict:
                                "velocity_mean"),
         "sprint_context": history.merged(request.sprint_context.model_dump() if request.sprint_context else None,
                                          sprint, "length_days"),
+        "focus": request.focus_story_ids,
     }
 

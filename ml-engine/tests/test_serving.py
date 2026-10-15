@@ -136,6 +136,28 @@ def test_recommendations_only_for_reasons_the_model_gave_and_only_when_actionabl
         "small", "small", "medium", "medium", "large", "extra_large"]
 
 
+def test_story_size_team_history_and_late_additions_have_actions_too():
+    risky = {"predicted_story_points": 8, "interval_low": 4, "interval_high": 13, "effort_category": "large",
+             "sprint_risk_level": "medium"}
+    size, team = [{"factor": "Story size and content"}], [{"factor": "Team delivery history"}]
+    assert [r["action"] for r in recommend.for_story(risky, _story(description_length=40), size)] == ["split_story"]
+    medium = {**risky, "predicted_story_points": 3, "effort_category": "medium"}
+    short = recommend.for_story(medium, _story(description_length=6), size)
+    assert [r["action"] for r in short] == ["refine_requirement"]
+    assert "only 6 words" in short[0]["message"]
+    assert recommend.for_story(medium, _story(description_length=40), size) == []  # nothing to act on
+    cold = recommend.for_story(medium, _story(history_sprints=1), team)
+    assert [r["action"] for r in cold] == ["plan_buffer"] and "only 1 closed sprint on record" in cold[0]["message"]
+    slipping = _story(history_sprints=8, historical_spillover_rate=0.35)
+    assert "spilled over 35%" in recommend.for_story(medium, slipping, team)[0]["message"]
+    assert recommend.for_story(medium, _story(history_sprints=8, historical_spillover_rate=0.1), team) == []
+    overloaded = _story(history_sprints=8, sprint_committed_points=40, story_points=2, team_velocity_rolling=30)
+    assert [r["action"] for r in recommend.for_story(medium, overloaded, team)] == ["reduce_sprint_scope"]
+    late = recommend.for_story(medium, _story(added_mid_sprint=True), [{"factor": "Sprint load and timing"}])
+    assert [r["action"] for r in late] == ["reduce_sprint_scope"] and "after the sprint started" in late[0]["message"]
+    assert recommend.for_story(medium, _story(), [{"factor": "Story metadata"}]) == []
+
+
 def test_sprint_simulation():
     log_points = np.log1p([3, 5, 8, 2])
     high = np.expm1(log_points + 0.5)

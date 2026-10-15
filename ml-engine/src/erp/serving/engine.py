@@ -15,6 +15,7 @@ import pandas as pd
 
 from erp.arena.predictor import Predictor, finish
 from erp.features import catalog
+from erp.models import confidence as trust
 from erp.serving import explain, live, recommend, sprint
 from erp.serving.router import Router
 
@@ -34,16 +35,16 @@ class Engine:
     # ------------------------------------------------------------------ predictions
 
     def estimate(self, project_id: str, stories: list[dict], team: dict | None = None, sprint_context: dict | None
-                 = None, pinned: str | None = None) -> dict:
-        features, sources = live.build(project_id, stories, team, sprint_context)
+                 = None, pinned: str | None = None, focus: list[str] | None = None) -> dict:
+        features, sources = _focused(*live.build(project_id, stories, team, sprint_context), focus)
         history = features["history_sprints"].iloc[0] if len(features) else None
         choice = self.router.choose(project_id, None if pd.isna(history) else float(history), pinned)
         return self._predict(choice.config, choice.mode, choice.reason, project_id, features, sources)
 
     def compare(self, project_id: str, stories: list[dict], configs: list[str] | None = None,
-                team: dict | None = None, sprint_context: dict | None = None) -> dict:
+                team: dict | None = None, sprint_context: dict | None = None, focus: list[str] | None = None) -> dict:
         """The same backlog through several configurations, side by side (FR12)."""
-        features, sources = live.build(project_id, stories, team, sprint_context)
+        features, sources = _focused(*live.build(project_id, stories, team, sprint_context), focus)
         chosen = configs or self.router.available
         unknown = [c for c in chosen if c not in self.router.available]
         if unknown:
@@ -52,9 +53,11 @@ class Engine:
                             for c in chosen]}
 
     def sprint_risk(self, project_id: str, stories: list[dict], team: dict | None = None,
-                    sprint_context: dict | None = None, pinned: str | None = None) -> dict:
-        """The sprint-level risk of committing to this backlog (FR16), with the story predictions it rests on."""
-        result = self.estimate(project_id, stories, team, sprint_context, pinned)
+                    sprint_context: dict | None = None, pinned: str | None = None,
+                    focus: list[str] | None = None) -> dict:
+        """The sprint-level risk of committing to this backlog (FR16), with the story predictions it rests on
+        (with focus, only the focus stories are simulated)."""
+        result = self.estimate(project_id, stories, team, sprint_context, pinned, focus)
         predictions = result["predictions"]
         capacity = (sprint_context or {}).get("capacity_points") or (team or {}).get("velocity_mean")
         simulation = sprint.simulate(
@@ -106,6 +109,7 @@ class Engine:
                 "at_risk": bool(row["at_risk"]),
                 "confidence_score": round(float(row["confidence_score"]), 4),
                 "confidence_level": row["confidence"],
+                "confidence_breakdown": _breakdown(model, row, features.iloc[i], int(missing[i])),
                 "key_risk_reasons": [{"factor": r["factor"], "direction": "increases", "weight": r["share"]}
                                      for r in risk_reasons[i]],
                 "recommendations": recommend.for_story(story, features.iloc[i], risk_reasons[i]),
@@ -141,6 +145,40 @@ class Engine:
                                                                   "latency_p95") if k in metrics}})
         return {"arena": board["arena"], "pooled_winner": self.router.pooled_winner, "weights": board["weights"],
                 "configurations": sorted(summaries, key=lambda s: -s["composite"])}
+
+
+def _breakdown(model, row: pd.Series, story: pd.Series, missing: int) -> dict | None:
+    """The confidence score's parts (erp.models.confidence): S x (E + R) / 2, with what lowered S."""
+    if getattr(model, "confidence", None) is None or "data_support" not in row:
+        return None
+    penalties = []
+    sprints = story.get("history_sprints")
+    sprints = 0 if sprints is None or pd.isna(sprints) else int(sprints)
+    if sprints < trust.COLD_START_SPRINTS:
+        penalties.append({"reason": "cold_start", "factor": trust.PENALTIES["cold_start"],
+                          "detail": f"the team has {sprints} closed sprint(s); {trust.COLD_START_SPRINTS} are needed"})
+    if str(story.get("project_key")) not in model.confidence.known_projects:
+        penalties.append({"reason": "unseen_project", "factor": trust.PENALTIES["unseen_project"],
+                          "detail": "the models were trained on other projects' stories"})
+    if missing:
+        penalties.append({"reason": "missing_group", "factor": round(trust.PENALTIES["missing_group"] ** missing, 4),
+                          "detail": f"{missing} feature group(s) not available"})
+    return {"effort_certainty": round(float(row["effort_certainty"]), 4),
+            "risk_certainty": round(float(row["risk_certainty"]), 4),
+            "data_support": round(float(row["data_support"]), 4), "penalties": penalties}
+
+
+def _focused(features: pd.DataFrame, sources: pd.DataFrame, focus: list[str] | None
+             ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Only the focus stories' rows. Their features were computed with the whole backlog, so the rest of the
+    sprint still counts as committed work (sprint_committed_points) without being predicted itself."""
+    if not focus:
+        return features, sources
+    unknown = [story_id for story_id in focus if story_id not in features.index]
+    if unknown:
+        raise KeyError(f"focus stories not in the request: {', '.join(unknown)}")
+    keep = list(dict.fromkeys(focus))
+    return features.loc[keep], sources.loc[keep]
 
 
 def default_models_dir() -> Path:

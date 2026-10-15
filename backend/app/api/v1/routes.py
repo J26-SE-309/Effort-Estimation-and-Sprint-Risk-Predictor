@@ -98,7 +98,7 @@ async def compare(request: CompareRequest) -> dict:
     arguments = engine_arguments(request)
     try:
         result = get_engine().compare(arguments["project_id"], arguments["stories"], request.configurations,
-                                      arguments["team"], arguments["sprint_context"])
+                                      arguments["team"], arguments["sprint_context"], arguments["focus"])
     except KeyError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error.args[0])) from error
     return {"results": [{"configuration_id": r["configuration_id"], "predictions": r["predictions"]}
