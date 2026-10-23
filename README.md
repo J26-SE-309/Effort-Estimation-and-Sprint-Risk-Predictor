@@ -52,7 +52,7 @@ Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the r
 
    ```powershell
    py -3.12 -m venv .venv
-   .venv\Scripts\python -m pip install -e "ml-engine[dev,serving]" -e "backend[dev]"
+   .venv\Scripts\python -m pip install -e "ml-engine[dev,pipeline,serving]" -e "backend[dev]"
    ```
 
 2. Start this component's local database (skip it when `backend/.env` names the hosted one; see
@@ -76,9 +76,12 @@ Requires Python 3.12, Docker Desktop and Git. Run these in PowerShell from the r
 To run the service and its database together in Docker instead: `docker compose up --build`. The image is
 built from the repository root, because it holds the prediction engine and the trained models. By default it
 leaves out torch and serves the FastText and TF-IDF configurations, which are all the router picks; the SBERT
-ones, M3 and the stack show as "not installed" in `/api/v1/models`. To serve them too, build with torch (CPU
-build, XGBoost, CatBoost and the SBERT model, about 1.5 GB more): set `EFFORT_WITH_TORCH=true` before
-`docker compose up --build`. Locally, the same configurations need `pip install -e "ml-engine[serving-sbert]"`
+ones, M3, the stack and DistilBERT show as "not installed" in `/api/v1/models`. To serve them too, set
+`EFFORT_WITH_TORCH=true` before `docker compose up --build`. The image still holds no PyTorch: while it is built,
+`erp-export-onnx` converts SBERT and the fine-tuned DistilBERT to ONNX (and fails the build unless ONNX Runtime
+reproduces PyTorch's outputs within 1e-4), and the service runs them with ONNX Runtime, and M3 in NumPy. XGBoost
+comes without its multi-GPU library, and the data pipeline's packages (pyarrow and the rest of the `pipeline`
+extra) stay out. Locally, the same configurations run in PyTorch: `pip install -e "ml-engine[serving-sbert]"`
 after the CPU build of torch.
 
 ### Database
@@ -330,7 +333,7 @@ AgilePlatform/
     ```powershell
     python -m venv .venv-gpu
     .venv-gpu\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cu130
-    .venv-gpu\Scripts\pip install -e ml-engine transformers safetensors
+    .venv-gpu\Scripts\pip install -e "ml-engine[pipeline]" transformers safetensors
     .venv-gpu\Scripts\python -m erp.arena.distilbert
     .venv\Scripts\python -m erp.arena.distilbert --finish
     ```

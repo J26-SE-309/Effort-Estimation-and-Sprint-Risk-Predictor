@@ -166,6 +166,10 @@ class DistilBertLearner:
 
     def _forward(self, texts: list[str], features: np.ndarray, device: str, size: int = 64) -> np.ndarray:
         """Raw network outputs (standardised effort or risk logit)."""
+        from erp.models import onnx_runtime
+
+        if isinstance(self.net, onnx_runtime.DistilBertNet):
+            return self.net.forward(texts, features, size)
         import torch
 
         self.net.eval()
@@ -195,15 +199,22 @@ class DistilBertLearner:
                 "inputs": int(len(self.prep.columns())), "prep": self.prep.to_dict()}
 
     @classmethod
-    def load(cls, directory: Path, task: str, spec: dict) -> "DistilBertLearner":
-        """On the CPU, in float32, from the stored half-precision weights."""
-        import torch
-        from safetensors.torch import load_file
+    def load(cls, directory: Path, task: str, spec: dict, exported: bool = True) -> "DistilBertLearner":
+        """On the CPU, in float32, from the stored half-precision weights: with ONNX Runtime when the network has
+        been exported to ONNX beside them (see erp.models.onnx_export; unless exported=False), else in PyTorch."""
+        from erp.models import onnx_runtime
 
         learner = cls(task)
         learner.prep = TabularPrep.from_dict(spec["prep"])
         learner.params, learner.target, learner.pos_weight = spec["params"], spec["target"], spec["pos_weight"]
         learner.best_epoch, learner.best_val_loss = spec["best_epoch"], spec["best_val_loss"]
+        onnx_file = directory / Path(spec["file"]).with_suffix(".onnx").name
+        if exported and onnx_runtime.ready(onnx_file, directory / onnx_runtime.TOKENIZER):
+            learner.net = onnx_runtime.DistilBertNet(onnx_file, directory / onnx_runtime.TOKENIZER)
+            return learner
+        import torch
+        from safetensors.torch import load_file
+
         learner.net = _net(spec["inputs"], pretrained=False)
         state = {k: (v.to(torch.float32) if v.is_floating_point() else v)
                  for k, v in load_file(directory / spec["file"]).items()}

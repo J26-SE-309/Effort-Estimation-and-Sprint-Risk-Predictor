@@ -8,8 +8,9 @@
   4. Everyone else gets the pooled winner: the eligible configuration with the best composite score.
 Only configurations whose files are present can answer (DistilBERT's weights, for example, stay on the machine
 that fine-tuned them), and only when the packages they run on are installed (the service image built without
-torch serves no SBERT, multi-task or DistilBERT model, nor the stack built on SBERT ones). Models are loaded once,
-on first use, and then kept in memory.
+WITH_TORCH serves no SBERT, multi-task or DistilBERT model, nor the stack built on SBERT ones). The networks
+trained in PyTorch run in PyTorch, or without it: SBERT and DistilBERT exported to ONNX (erp.models.onnx_export),
+M3 in NumPy. Models are loaded once, on first use, and then kept in memory.
 """
 
 import importlib.util
@@ -19,13 +20,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from erp.arena import predictor
+from erp.models import onnx_runtime
 from erp.models.confidence import COLD_START_SPRINTS
+from erp.models.encoders import SbertEncoder
 
 MARGIN = 0.02
 MIN_HISTORY_SPRINTS = COLD_START_SPRINTS
-# Encoders and learners that need packages beyond the serving extra (they come with the serving-sbert extra).
-NEEDS = {"sbert": ("torch", "sentence_transformers"), "xgboost": ("xgboost",), "catboost": ("catboost",),
-         "mlp": ("torch", "safetensors"), "distilbert": ("torch", "transformers", "safetensors")}
+# Learners that need packages beyond the serving extra (they come with the serving-sbert or serving-onnx extra).
+# SBERT and DistilBERT run in PyTorch or from an ONNX export: see _usable.
+NEEDS = {"xgboost": ("xgboost",), "catboost": ("catboost",), "mlp": ("safetensors",)}
+DISTILBERT_TORCH = ("torch", "transformers", "safetensors")
 
 
 @dataclass(frozen=True)
@@ -86,14 +90,23 @@ def _usable(directory: Path) -> bool:
     """True when every model file model.json names is present (local-only weights may be absent elsewhere) and the
     packages the configuration runs on are installed. A stack is usable when all its base configurations are."""
     manifest = json.loads((directory / predictor.MANIFEST).read_text(encoding="utf-8"))
+    config = manifest.get("config", {})
     files = [manifest.get(part, {}).get("model", {}).get("file") for part in ("effort", "risk")]
     files.append(manifest.get("joint", {}).get("file"))
-    if not all((directory / f).exists() for f in files if f):
+    files = [directory / f for f in files if f]
+    if config.get("learner") == "distilbert":  # its exported networks, or its weights and PyTorch
+        exported = [f.with_suffix(".onnx") for f in files] + [directory / onnx_runtime.TOKENIZER]
+        return onnx_runtime.ready(*exported) or (all(f.exists() for f in files) and _installed(*DISTILBERT_TORCH))
+    if not all(f.exists() for f in files):
         return False
     bases = {base for part in ("effort", "risk") for base in manifest.get(part, {}).get("bases", [])}
     if bases:
         return all((directory.parent / base / predictor.MANIFEST).exists() and _usable(directory.parent / base)
                    for base in bases)
-    config = manifest.get("config", {})
-    needs = {package for part in (config.get("encoder"), config.get("learner")) for package in NEEDS.get(part, ())}
-    return all(importlib.util.find_spec(package) is not None for package in needs)
+    if config.get("encoder") == "sbert" and not SbertEncoder.runnable(directory.parent / "encoders" / "sbert"):
+        return False
+    return _installed(*NEEDS.get(config.get("learner"), ()))
+
+
+def _installed(*packages: str) -> bool:
+    return all(importlib.util.find_spec(package) is not None for package in packages)

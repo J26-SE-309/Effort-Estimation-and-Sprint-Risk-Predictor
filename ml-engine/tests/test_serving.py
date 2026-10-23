@@ -79,9 +79,22 @@ def test_router_offers_only_configurations_whose_packages_are_installed(tmp_path
              "configs": {n: {"eligible": True, "composite": 0.5} for n in (*configs, "stack", "stack-light")}}
     (tmp_path / "leaderboard.json").write_text(json.dumps(board), encoding="utf-8")
     find_spec = router_module.importlib.util.find_spec
-    monkeypatch.setattr(router_module.importlib.util, "find_spec",
-                        lambda name: None if name == "torch" else find_spec(name))
-    assert Router(tmp_path).available == ["fasttext-lightgbm", "stack-light"]  # the image built without torch
+
+    def packages(*missing):
+        monkeypatch.setattr(router_module.importlib.util, "find_spec",
+                            lambda name: None if name in missing else find_spec(name))
+
+    networks = ("torch", "sentence_transformers", "onnxruntime", "tokenizers", "safetensors")
+    packages(*networks)
+    assert Router(tmp_path).available == ["fasttext-lightgbm", "stack-light"]  # the image built without WITH_TORCH
+    packages("torch", "sentence_transformers")  # the WITH_TORCH image: M3 in NumPy, SBERT only when exported
+    assert Router(tmp_path).available == ["fasttext-lightgbm", "stack-light", "tfidf-mtl"]
+    (tmp_path / "encoders" / "sbert").mkdir(parents=True)
+    for name in ("model.onnx", "tokenizer.json"):
+        (tmp_path / "encoders" / "sbert" / name).write_bytes(b"")
+    assert Router(tmp_path).available == ["fasttext-lightgbm", "sbert-lightgbm", "stack", "stack-light", "tfidf-mtl"]
+    packages("torch", "sentence_transformers", "onnxruntime")  # an export is used only with ONNX Runtime
+    assert Router(tmp_path).available == ["fasttext-lightgbm", "stack-light", "tfidf-mtl"]
 
 
 def test_a_copied_arena_folder_loads_its_own_encoders(tmp_path, monkeypatch):

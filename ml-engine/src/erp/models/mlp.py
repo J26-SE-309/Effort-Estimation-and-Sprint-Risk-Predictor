@@ -12,9 +12,11 @@ exactly the same inputs. Training stops early on the validation loss (the calibr
 as ML guide 8.1 allows for neural networks) and keeps the best epoch.
 
 Saved as safetensors (weights only, cannot run code) plus JSON with the architecture, TabularPrep and target
-scaling.
+scaling. Where PyTorch is not installed (the service image) a saved network runs in NumPy: the same layers in
+float32, so the same predictions up to rounding.
 """
 
+import importlib.util
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +51,27 @@ def _network(inputs: int, tasks: tuple[str, ...], dropout: float):
             return {task: head(hidden).squeeze(-1) for task, head in self.heads.items()}
 
     return Net()
+
+
+class NumpyNetwork:
+    """A saved network's forward pass in NumPy (evaluation mode: dropout does nothing), from its state dict."""
+
+    LAYER_NORM_EPS = 1e-5  # torch.nn.LayerNorm's default
+
+    def __init__(self, state: dict[str, np.ndarray], tasks: tuple[str, ...]):
+        self.state, self.tasks = state, tasks
+
+    def __call__(self, x: np.ndarray) -> dict[str, np.ndarray]:
+        hidden = np.asarray(x, np.float32)
+        for i in range(len(TRUNK)):  # Linear, LayerNorm, ReLU, Dropout per trunk layer
+            linear, norm = f"trunk.{4 * i}", f"trunk.{4 * i + 1}"
+            hidden = hidden @ self.state[f"{linear}.weight"].T + self.state[f"{linear}.bias"]
+            mean = hidden.mean(axis=1, keepdims=True)
+            variance = ((hidden - mean) ** 2).mean(axis=1, keepdims=True)
+            hidden = (hidden - mean) / np.sqrt(variance + np.float32(self.LAYER_NORM_EPS))
+            hidden = np.maximum(hidden * self.state[f"{norm}.weight"] + self.state[f"{norm}.bias"], 0)
+        return {task: (hidden @ self.state[f"heads.{task}.weight"].T + self.state[f"heads.{task}.bias"])[:, 0]
+                for task in self.tasks}
 
 
 class MLP:
@@ -157,6 +180,14 @@ class MLP:
 
     def predict(self, x: pd.DataFrame) -> dict[str, np.ndarray]:
         """{'effort': log(1 + points), 'risk': probability before C1} for the network's tasks."""
+        if isinstance(self.net, NumpyNetwork):
+            out = self.net(self.prep.transform(x))
+            result = {}
+            if "effort" in self.tasks:
+                result["effort"] = out["effort"].astype(float) * self.target["std"] + self.target["mean"]
+            if "risk" in self.tasks:
+                result["risk"] = (1 / (1 + np.exp(-out["risk"]))).astype(float)
+            return result
         import torch
 
         features, _ = self._tensors(x, None)
@@ -180,12 +211,18 @@ class MLP:
 
     @classmethod
     def load(cls, directory: Path, spec: dict) -> "MLP":
-        from safetensors.torch import load_file
-
+        """In PyTorch where it is installed, otherwise in NumPy."""
         model = cls(tuple(spec["tasks"]))
         model.prep = TabularPrep.from_dict(spec["prep"])
         model.params, model.target, model.pos_weight = spec["params"], spec["target"], spec["pos_weight"]
         model.best_epoch, model.best_val_loss = spec["best_epoch"], spec["best_val_loss"]
+        if importlib.util.find_spec("torch") is None:
+            from safetensors.numpy import load_file
+
+            model.net = NumpyNetwork(load_file(directory / spec["file"]), model.tasks)
+            return model
+        from safetensors.torch import load_file
+
         model.net = _network(spec["inputs"], model.tasks, spec["params"]["dropout"])
         model.net.load_state_dict(load_file(directory / spec["file"]))
         model.net.eval()

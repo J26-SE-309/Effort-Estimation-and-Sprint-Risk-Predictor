@@ -7,19 +7,24 @@ name = "erp"
 version = "0.1.0"
 description = "Effort Estimation and Sprint Risk Predictor: data pipeline, labels, features and models"
 requires-python = ">=3.11"
+# What the prediction engine needs everywhere; the data pipeline, training and serving add their extras below.
 dependencies = [
   "numpy>=1.26",
   "pandas>=2.2",
-  "pyarrow>=16",
-  "pymysql>=1.1",
-  "cryptography>=42", # MySQL 8 caching_sha2_password authentication
-  "openpyxl>=3.1", # the review workbooks
   "scikit-learn>=1.5",
   "lightgbm>=4.7", # eval_X / eval_y
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# The data pipeline, training and the arena: the TAWOS export from MySQL, the Parquet files in Datasets and the
+# review workbooks. The prediction service reads none of these.
+pipeline = [
+  "pyarrow>=16",
+  "pymysql>=1.1",
+  "cryptography>=42", # MySQL 8 caching_sha2_password authentication
+  "openpyxl>=3.1", # the review workbooks
+]
 # Text encoders that download pre-trained models (E3 SBERT; later E4). Install the CPU build of torch first:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 encoders = ["sentence-transformers>=3", "torch>=2.4"]
@@ -28,6 +33,19 @@ encoders = ["sentence-transformers>=3", "torch>=2.4"]
 serving = ["gensim>=4.4", "skops>=0.10"]
 # The service's other configurations: the SBERT ones, M3 and the stack (install the CPU build of torch first).
 serving-sbert = ["xgboost>=3", "catboost>=1.2", "safetensors>=0.4", "sentence-transformers>=3", "torch>=2.4"]
+# The same configurations without PyTorch, as the service image runs them: SBERT and DistilBERT exported to ONNX by
+# erp-export-onnx, M3 in NumPy. On Linux xgboost-cpu is XGBoost without its multi-GPU library (NCCL, ~345 MB).
+serving-onnx = [
+  "xgboost-cpu>=3; sys_platform == 'linux'",
+  "xgboost>=3; sys_platform != 'linux'",
+  "catboost>=1.2",
+  "safetensors>=0.4",
+  "onnxruntime>=1.20",
+  "tokenizers>=0.20",
+]
+# erp-export-onnx itself (install the CPU build of torch first).
+onnx-export = ["onnx>=1.17", "onnxruntime>=1.20", "sentence-transformers>=3", "transformers>=4.45",
+               "safetensors>=0.4", "torch>=2.4"]
 # The Phase 4 arena: the serving learners plus tuning and experiment tracking. The multi-task network (M3) also
 # needs torch from the encoders extra.
 arena = ["xgboost>=3", "catboost>=1.2", "gensim>=4.4", "optuna>=4", "mlflow>=3", "skops>=0.10", "safetensors>=0.4"]
@@ -48,6 +66,7 @@ erp-run-hypotheses = "erp.arena.hypotheses:main"
 erp-fit-intervals = "erp.arena.intervals:main"
 erp-history-parity = "erp.serving.replay:main"
 erp-unseen-projects = "erp.arena.unseen:main"
+erp-export-onnx = "erp.models.onnx_export:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erp"]

@@ -4,13 +4,14 @@ import re
 from pathlib import Path
 
 import pandas as pd
-import pyarrow.parquet as pq
 
 from erp import config
 
 
 def load(table: str, columns: list[str] | None = None, filters=None, parquet_dir: Path | None = None) -> pd.DataFrame:
     """Load one exported TAWOS table, optionally only some columns / rows (pyarrow filters)."""
+    import pyarrow.parquet as pq  # the pipeline extra: the service imports this module only for the decoders below
+
     path = (parquet_dir or config.TAWOS_PARQUET_DIR) / f"{table}.parquet"
     if not path.exists():
         raise FileNotFoundError(f"{path} not found. Run erp-export-tawos first.")

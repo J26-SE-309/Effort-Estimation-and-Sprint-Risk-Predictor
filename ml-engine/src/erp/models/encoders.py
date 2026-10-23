@@ -184,7 +184,11 @@ class FastTextEncoder:
 
 
 class SbertEncoder:
-    """E3: SBERT all-MiniLM-L6-v2 (384 values per text), used as downloaded, on the CPU."""
+    """E3: SBERT all-MiniLM-L6-v2 (384 values per text), used as downloaded, on the CPU.
+
+    It runs in PyTorch (sentence-transformers), or with ONNX Runtime where `erp-export-onnx` has exported it into
+    the arena's encoders/sbert folder (the service image, which has no PyTorch).
+    """
 
     name = "sbert"
     model_id = "sentence-transformers/all-MiniLM-L6-v2"
@@ -192,19 +196,40 @@ class SbertEncoder:
     dimensions = 384
     text = "title + '. ' + description_text (code removed), truncated to 256 word pieces"
 
-    def __init__(self, store: Path | None = None, model=None, batch_size: int = 64):
+    def __init__(self, store: Path | None = None, model=None, batch_size: int = 64, directory: Path | None = None):
         self.store = store or EMBEDDINGS_DIR / "sbert-all-MiniLM-L6-v2.npz"
         self._model = model
         self.batch_size = batch_size
+        self.directory = directory  # where an ONNX export may be
 
     def fit(self, texts: pd.Series) -> "SbertEncoder":
         return self  # pre-trained: nothing to learn from our data
 
+    @staticmethod
+    def _exported(directory: Path | None) -> bool:
+        from erp.models import onnx_runtime
+
+        return directory is not None and onnx_runtime.ready(directory / onnx_runtime.SbertModel.MODEL,
+                                                            directory / onnx_runtime.TOKENIZER)
+
+    @classmethod
+    def runnable(cls, directory: Path | None = None) -> bool:
+        """Exported to ONNX in `directory`, or PyTorch and sentence-transformers installed."""
+        import importlib.util
+
+        return cls._exported(directory) or all(importlib.util.find_spec(p) is not None
+                                               for p in ("torch", "sentence_transformers"))
+
     def _load_model(self):
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
+            if self._exported(self.directory):
+                from erp.models import onnx_runtime
 
-            self._model = SentenceTransformer(self.model_id, revision=self.revision, device="cpu")
+                self._model = onnx_runtime.SbertModel(self.directory, self.dimensions)
+            else:
+                from sentence_transformers import SentenceTransformer
+
+                self._model = SentenceTransformer(self.model_id, revision=self.revision, device="cpu")
         return self._model
 
     def encode(self, texts: list[str]) -> np.ndarray:
@@ -238,7 +263,7 @@ class SbertEncoder:
 
     @classmethod
     def load(cls, directory: Path | None = None) -> "SbertEncoder":
-        return cls()
+        return cls(directory=directory)
 
 
 ENCODERS = {encoder.name: encoder for encoder in (TfidfEncoder, FastTextEncoder, SbertEncoder)}

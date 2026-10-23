@@ -21,7 +21,6 @@ import pandas as pd
 from erp import config
 from erp.arena.configs import ARENA, INNER_FOLDS
 from erp.models import encoders
-from erp.models.first_models import load_dataset
 from erp.models.inputs import category_levels
 
 MODELS_DIR = config.MODEL_BUNDLES_DIR / ARENA
@@ -71,6 +70,8 @@ class ArenaData:
 
     @classmethod
     def load(cls, interim: Path | None = None) -> "ArenaData":
+        from erp.models.first_models import load_dataset  # training only: the service has no pipeline extra
+
         frame = load_dataset(interim or config.INTERIM_DIR)
         data = cls(frame=frame, texts=encoders.story_text(frame), levels=category_levels(frame))
         data.folds = inner_folds(data.train)
@@ -128,9 +129,7 @@ class ArenaData:
 
 def load_encoder(name: str, directory: Path = ENCODERS_DIR):
     """The fitted encoder shared by an arena's configurations: `directory` is that arena's encoders folder."""
-    if name == "sbert":
-        return encoders.SbertEncoder()
-    return encoders.ENCODERS[name].load(directory / name)
+    return encoders.ENCODERS[name].load(directory / name)  # SBERT's folder holds only an ONNX export, if any
 
 
 def text_columns(name: str) -> list[str]:

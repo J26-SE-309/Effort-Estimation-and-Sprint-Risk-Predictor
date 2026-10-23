@@ -116,9 +116,10 @@ def test_tabular_prep_one_hot_missing_flags_and_json():
     assert catalog.factor_of("reopen_rate__missing") == catalog.factor_of("reopen_rate")
 
 
-def test_joint_network_learns_both_tasks_and_reloads(tmp_path):
+def test_joint_network_learns_both_tasks_and_reloads(tmp_path, monkeypatch):
     pytest.importorskip("torch")
     pytest.importorskip("safetensors")
+    from erp.models import mlp
     from erp.models.mlp import MLP
 
     rng = np.random.default_rng(3)
@@ -135,8 +136,15 @@ def test_joint_network_learns_both_tasks_and_reloads(tmp_path):
     assert np.corrcoef(out["effort"], y["effort"][val])[0, 1] > 0.8
     blocked = x["blocked"][val].to_numpy() > 0
     assert out["risk"][blocked].mean() > out["risk"][~blocked].mean()
-    again = MLP.load(tmp_path, model.save(tmp_path, "joint")).predict(x[val])
+    spec = model.save(tmp_path, "joint")
+    again = MLP.load(tmp_path, spec).predict(x[val])
     assert all(np.array_equal(out[t], again[t]) for t in out)
+    find_spec = mlp.importlib.util.find_spec
+    monkeypatch.setattr(mlp.importlib.util, "find_spec", lambda name: None if name == "torch" else find_spec(name))
+    without_torch = MLP.load(tmp_path, spec)  # the service image: the same network in NumPy
+    assert isinstance(without_torch.net, mlp.NumpyNetwork)
+    numpy_out = without_torch.predict(x[val])
+    assert all(np.allclose(out[t], numpy_out[t], rtol=0, atol=1e-5) for t in out)
 
 
 def test_holm_and_vargha_delaney():
