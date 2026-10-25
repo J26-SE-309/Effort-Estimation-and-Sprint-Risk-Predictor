@@ -2,8 +2,9 @@
 Evidence for the confidence score's unseen-project penalty (erp/models/confidence.py).
 
 The models learned from the TAWOS projects, so every platform project is new to them, and every platform
-prediction carries the x0.7 unseen-project penalty for good, even once the service holds the project's own sprint
-history. This experiment measures what being unseen costs, and whether the project's history takes that cost away.
+prediction carries the unseen-project penalty. This experiment measures what being unseen costs, and whether the
+project's history takes that cost away: its result set the penalty to x0.7 before a project's 3rd closed sprint and
+x0.85 from it.
 
 Leave one project out: for each TAWOS project P with test stories, the router's configuration (FastText +
 LightGBM, with its tuned settings) is trained without P's stories, and P's project key is unknown to it, as for a
@@ -153,7 +154,8 @@ def build_report(summary: dict) -> str:
         "its tuned settings) was trained without the project, whose key it then did not know (as for a platform "
         "project), and predicted all its stories; the same configuration trained with the project predicted its "
         "test stories. Evidence for the confidence score's unseen-project penalty "
-        f"(x{PENALTIES['unseen_project']}) and cold-start penalty (x{PENALTIES['cold_start']}, fewer than "
+        f"(x{PENALTIES['unseen_project']}, x{PENALTIES['unseen_project_with_history']} from the {COLD_START_SPRINTS}rd "
+        "closed sprint) and cold-start penalty (x{PENALTIES['cold_start']}, fewer than "
         f"{COLD_START_SPRINTS} closed sprints).", "",
         md_table(groups), "",
         "The cost of being unseen, on the same test stories (paired bootstrap; for MAE and Brier, positive means "

@@ -85,7 +85,9 @@ def test_the_confidence_score_says_what_lowered_it(client):
     warm = client.post("/api/v1/estimate", json={"project_id": "SYN", "team_context": TEAM, "stories": [
         _story("S-1", upstream=signals)], "sprint_context": {"length_days": 14}}).json()["predictions"][0][
         "confidence_breakdown"]
-    assert [p["reason"] for p in warm["penalties"]] == ["unseen_project"] and warm["data_support"] == 0.7
+    # an unseen project with enough closed sprints: the penalty eases from x 0.7 to x 0.85
+    assert [p["reason"] for p in warm["penalties"]] == ["unseen_project"] and warm["data_support"] == 0.85
+    assert warm["penalties"][0]["factor"] == 0.85 and parts["penalties"][1]["factor"] == 0.7
 
 
 def test_each_action_says_what_it_is_expected_to_do_to_the_risk(client):

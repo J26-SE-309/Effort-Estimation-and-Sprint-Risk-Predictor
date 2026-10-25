@@ -183,8 +183,11 @@ def _breakdown(model, row: pd.Series, story: pd.Series, missing: int) -> dict | 
         penalties.append({"reason": "cold_start", "factor": trust.PENALTIES["cold_start"],
                           "detail": f"the team has {sprints} closed sprint(s); {trust.COLD_START_SPRINTS} are needed"})
     if str(story.get("project_key")) not in model.confidence.known_projects:
-        penalties.append({"reason": "unseen_project", "factor": trust.PENALTIES["unseen_project"],
-                          "detail": "the models were trained on other projects' stories"})
+        factor = float(trust.Confidence.unseen_penalty([sprints])[0])
+        history = ("; less so once it has closed sprints" if sprints < trust.COLD_START_SPRINTS
+                   else f"; eased with its {sprints} closed sprints")
+        penalties.append({"reason": "unseen_project", "factor": factor,
+                          "detail": f"the models were trained on other projects' stories{history}"})
     if missing:
         penalties.append({"reason": "missing_group", "factor": round(trust.PENALTIES["missing_group"] ** missing, 4),
                           "detail": f"{missing} feature group(s) not available"})

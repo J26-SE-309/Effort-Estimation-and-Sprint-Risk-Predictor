@@ -38,16 +38,18 @@ def test_adaptive_intervals_follow_difficulty_keep_coverage_and_reload(tmp_path)
 
 
 def test_confidence_score_parts_penalties_and_bands():
-    stories = pd.DataFrame({"history_sprints": [10, 10, 1, 10], "project_key": ["A", "A", "A", "NEW"]})
+    stories = pd.DataFrame({"history_sprints": [10, 10, 1, 10, 1],
+                            "project_key": ["A", "A", "A", "NEW", "NEW"]})
     confidence = conf.Confidence().fit(np.linspace(1.0, 2.0, 200), ["A"])
-    points = np.array([3.0, 3.0, 3.0, 3.0])
-    width = np.array([1.0, 2.0, 1.0, 1.0]) * (points + 1)  # relative widths 1 (tightest) and 2 (widest)
-    out = confidence.score(stories, np.zeros(4), width, points, np.array([0.95, 0.5, 0.95, 0.95]))
-    assert out["effort_certainty"].round(3).tolist() == [1.0, 0.0, 1.0, 1.0]
-    assert out["risk_certainty"].round(3).tolist() == [0.9, 0.0, 0.9, 0.9]
-    assert out["data_support"].tolist() == [1.0, 1.0, 0.7, 0.7]  # cold start, unseen project
-    assert out["confidence"].tolist() == ["high", "low", "high", "high"]
-    assert out["confidence_score"].round(3).tolist() == [0.95, 0.0, 0.665, 0.665]
+    points = np.array([3.0, 3.0, 3.0, 3.0, 3.0])
+    width = np.array([1.0, 2.0, 1.0, 1.0, 1.0]) * (points + 1)  # relative widths 1 (tightest) and 2 (widest)
+    out = confidence.score(stories, np.zeros(5), width, points, np.array([0.95, 0.5, 0.95, 0.95, 0.95]))
+    assert out["effort_certainty"].round(3).tolist() == [1.0, 0.0, 1.0, 1.0, 1.0]
+    assert out["risk_certainty"].round(3).tolist() == [0.9, 0.0, 0.9, 0.9, 0.9]
+    # cold start; an unseen project with 3+ closed sprints (x 0.85); an unseen one before them (x 0.7 x 0.7)
+    assert out["data_support"].round(4).tolist() == [1.0, 1.0, 0.7, 0.85, 0.49]
+    assert out["confidence"].tolist() == ["high", "low", "high", "high", "medium"]
+    assert out["confidence_score"].round(4).tolist() == [0.95, 0.0, 0.665, 0.8075, 0.4655]
     missing = confidence.score(stories.iloc[:1], np.zeros(1), width[:1], points[:1], np.array([0.95]),
                                missing_groups=3)
     assert missing["data_support"].iloc[0] == 0.85 ** 3 and missing["confidence"].iloc[0] == "medium"

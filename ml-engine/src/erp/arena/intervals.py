@@ -254,8 +254,9 @@ def build_report(results: list[dict], winner: str | None) -> str:
         "- **E, effort certainty:** the share of calibration stories whose 80% interval was relatively wider than "
         "this one's.",
         "- **R, risk certainty:** |2p − 1| for the calibrated risk probability p (0 = coin flip).",
-        "- **S, data support:** 1, × 0.7 for a team with fewer than 3 closed sprints, × 0.7 for a project the "
-        "model never saw, × 0.85 for each unavailable upstream feature group (FR17).", "",
+        "- **S, data support:** 1, × 0.7 for a team with fewer than 3 closed sprints; for a project the model never "
+        "saw, × 0.7 before its 3rd closed sprint and × 0.85 from it; × 0.85 for each unavailable upstream feature "
+        "group (FR17).", "",
         f"The bands of {labels.get(main['name'], main['name'])} (the router's pooled winner) on the test split:", "",
         md_table(pd.DataFrame(band_rows)), "",
         "The bands are honest only if the accuracy is ordered: High better than Medium, Medium better than Low. "
@@ -265,8 +266,8 @@ def build_report(results: list[dict], winner: str | None) -> str:
         "means firmer risk calls really were more often right.", "",
         *cold_text,
         "## 4. For the supervisor", "",
-        "- The formula, the weights (E and R count equally), the penalties (0.7, 0.7, 0.85), the cold-start "
-        "threshold (3 sprints) and the band limits (0.6, 0.35) are starting values to agree on.",
+        "- The formula, the weights (E and R count equally), the penalties (0.7; 0.7 easing to 0.85; 0.85), the "
+        "cold-start threshold (3 sprints) and the band limits (0.6, 0.35) are starting values to agree on.",
         "- The missing-group penalty cannot be checked on TAWOS (every historical story has all its features); it "
         "is checked with fault-injection tests of the service (NFR7).",
         "- The dashboard shows the band with its interval and probability; the user study (NFR4) checks that "

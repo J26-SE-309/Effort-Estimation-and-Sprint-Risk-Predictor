@@ -9,8 +9,12 @@ E  effort certainty: the share of calibration stories whose 80% interval was rel
    It needs adaptive intervals (C2): with plain split conformal every story has the same relative width.
 R  risk certainty: |2p - 1| for the calibrated probability p. 0.5 is a coin flip (0), 0.1 or 0.9 a firm call.
 S  data support, 1 unless the service knows the inputs are weak: x 0.7 for a team with fewer than 3 closed
-   sprints (cold start), x 0.7 for a project the model never saw, x 0.85 for each upstream feature group
-   (Components 1-3) that was unavailable (FR17).
+   sprints (cold start); for a project the model never saw, x 0.7 before its 3rd closed sprint and x 0.85 from
+   it; x 0.85 for each upstream feature group (Components 1-3) that was unavailable (FR17).
+
+The unseen-project penalty eases with history because the leave-one-project-out experiment
+(erp-unseen-projects, reports/unseen-projects.md) showed that an unseen project with 3 or more closed sprints keeps
+most of the seen models' accuracy, while one with fewer keeps about half of it.
 
 Bands, never the raw number, go on the dashboard: High from 0.6, Medium from 0.35, Low below. The score is only
 honest if the bands really order the accuracy (High more accurate than Medium, Medium than Low); erp-fit-intervals
@@ -22,7 +26,7 @@ import pandas as pd
 
 BANDS = {"high": 0.6, "medium": 0.35}
 COLD_START_SPRINTS = 3
-PENALTIES = {"cold_start": 0.7, "unseen_project": 0.7, "missing_group": 0.85}
+PENALTIES = {"cold_start": 0.7, "unseen_project": 0.7, "unseen_project_with_history": 0.85, "missing_group": 0.85}
 REFERENCE_POINTS = 101  # percentiles of the calibration split's relative widths kept in model.json
 
 
@@ -52,12 +56,18 @@ class Confidence:
     def risk_certainty(probability) -> np.ndarray:
         return np.abs(2 * np.asarray(probability, float) - 1)
 
+    @staticmethod
+    def unseen_penalty(history_sprints) -> np.ndarray:
+        """The unseen-project factor: x 0.7 before the project's 3rd closed sprint, x 0.85 from it."""
+        cold = np.nan_to_num(np.asarray(history_sprints, float), nan=0.0) < COLD_START_SPRINTS
+        return np.where(cold, PENALTIES["unseen_project"], PENALTIES["unseen_project_with_history"])
+
     def support(self, stories: pd.DataFrame, missing_groups=0) -> np.ndarray:
+        sprints = stories["history_sprints"].fillna(0).to_numpy()
         support = np.ones(len(stories))
-        support *= np.where(stories["history_sprints"].fillna(0).to_numpy() < COLD_START_SPRINTS,
-                            PENALTIES["cold_start"], 1.0)
+        support *= np.where(sprints < COLD_START_SPRINTS, PENALTIES["cold_start"], 1.0)
         support *= np.where(stories["project_key"].astype(str).isin(self.known_projects).to_numpy(), 1.0,
-                            PENALTIES["unseen_project"])
+                            self.unseen_penalty(sprints))
         return support * PENALTIES["missing_group"] ** np.asarray(missing_groups, float)
 
     def score(self, stories: pd.DataFrame, low, high, predicted_points, probability,
